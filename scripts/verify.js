@@ -470,7 +470,7 @@ record('rollover results render into embed chunks of 25 fields', () => {
   }
 });
 
-record('/verify rollover replies without throwing, even with many servers', () => {
+record('/verify rollover replies without throwing', () => {
   const verify = require('../commands/moderator/verify');
 
   const fakeGuild = (index) => ({
@@ -479,17 +479,18 @@ record('/verify rollover replies without throwing, even with many servers', () =
     ownerId: 'owner',
     roles: { cache: new Collection() },
     channels: { cache: new Collection() },
-    members: { me: null },
+    members: { me: null, fetch: async () => new Collection() },
   });
 
   const guilds = new Collection();
-  for (let index = 0; index < 30; index++) guilds.set(`g${index}`, fakeGuild(index));
+  for (let index = 0; index < 3; index++) guilds.set(`g${index}`, fakeGuild(index));
 
   const replied = [];
   const followedUp = [];
   let deferred = false;
 
   const interaction = {
+    guildId: 'g0',
     guild: fakeGuild(0),
     options: { getSubcommand: () => 'rollover', getString: () => 'preview' },
     deferReply: async () => {
@@ -505,15 +506,48 @@ record('/verify rollover replies without throwing, even with many servers', () =
     .run(client, interaction, [])
     .then(() => {
       assert.strictEqual(deferred, true, 'should defer because a rollover is slow');
-      assert.strictEqual(replied.length, 1, 'should reply once with the first embed');
-      assert.ok(followedUp.length >= 1, 'extra servers should be sent as follow-ups');
+      assert.strictEqual(replied.length, 1, 'should reply exactly once');
+      assert.strictEqual(followedUp.length, 0, 'one server should not need follow-ups');
       assert.ok(replied[0].embeds[0].toJSON().title, 'embed should have a title');
-      for (const payload of [...replied, ...followedUp]) {
-        for (const embed of payload.embeds) {
-          const fields = embed.toJSON().fields ?? [];
-          assert.ok(fields.length <= 25, 'embeds must respect the 25 field limit');
-        }
-      }
+    });
+});
+
+record('/verify rollover only touches the server it was run in', () => {
+  const verify = require('../commands/moderator/verify');
+
+  const fakeGuild = (index) => ({
+    id: `g${index}`,
+    name: `server-${index}`,
+    ownerId: 'owner',
+    roles: { cache: new Collection() },
+    channels: { cache: new Collection() },
+    members: { me: null, fetch: async () => new Collection() },
+  });
+
+  const guilds = new Collection();
+  for (let index = 0; index < 5; index++) guilds.set(`g${index}`, fakeGuild(index));
+
+  const replied = [];
+
+  const interaction = {
+    guildId: 'g3',
+    guild: fakeGuild(3),
+    options: { getSubcommand: () => 'rollover', getString: () => 'preview' },
+    deferReply: async () => {},
+    editReply: async (payload) => replied.push(payload),
+    followUp: async () => {},
+  };
+
+  const client = { guilds: { cache: guilds }, user: { tag: 'test#0001' } };
+
+  return verify
+    .run(client, interaction, [])
+    .then(() => {
+      const embeds = replied.flatMap((payload) => payload.embeds);
+      const fields = embeds.flatMap((embed) => embed.toJSON().fields ?? []);
+
+      assert.strictEqual(fields.length, 1, `should report on exactly 1 server, got ${fields.length}`);
+      assert.strictEqual(fields[0].name, 'server-3', 'should report the server the command ran in');
     });
 });
 

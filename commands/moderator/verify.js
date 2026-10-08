@@ -137,7 +137,7 @@ module.exports = {
 
       await interaction.deferReply({ ephemeral: true });
 
-      const results = await runRollover(client, { force: true, dryRun });
+      const results = await runRollover(client, { force: true, dryRun, guildId: guild.id });
 
       if (results.length === 0) {
         await interaction.editReply({
