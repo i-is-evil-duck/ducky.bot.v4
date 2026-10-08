@@ -9,7 +9,7 @@ module.exports = {
 
   async run(client, interaction) {
     const inviteLink = client.user
-      ? `https://discord.com/oauth2/authorize?client_id=${client.user.id}&scope=applications.commands%20bot&permissions=402926592`
+      ? `https://discord.com/oauth2/authorize?client_id=${client.user.id}&scope=applications.commands%20bot`
       : null;
 
     const embed = new EmbedBuilder()

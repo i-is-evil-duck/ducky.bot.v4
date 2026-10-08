@@ -1,4 +1,11 @@
-const { EmbedBuilder, SlashCommandBuilder, ChannelType, OverwriteType } = require('discord.js');
+const {
+  EmbedBuilder,
+  SlashCommandBuilder,
+  ChannelType,
+  OverwriteType,
+  PermissionsBitField,
+  Routes,
+} = require('discord.js');
 
 const config = require('../../config.json');
 const { tickets, verifyLog } = require('../../lib/db');
@@ -130,13 +137,17 @@ module.exports = {
     const overwrites = [{ id: interaction.user.id, type: OverwriteType.Member }];
     if (adminRole) overwrites.push({ id: adminRole.id, type: OverwriteType.Role });
 
+    const allow = (
+      PermissionsBitField.Flags.ViewChannel |
+      PermissionsBitField.Flags.SendMessages |
+      PermissionsBitField.Flags.SendMessagesInThreads
+    ).toString();
+
     for (const overwrite of overwrites) {
-      await thread.permissionOverwrites
-        .edit(
-          overwrite.id,
-          { ViewChannel: true, SendMessages: true, SendMessagesInThreads: true },
-          { type: overwrite.type }
-        )
+      await client.rest
+        .put(Routes.channelPermission(thread.id, overwrite.id), {
+          body: { type: overwrite.type, allow, deny: '0' },
+        })
         .catch((error) => console.error('Failed to apply thread overwrite:', error.message));
     }
 

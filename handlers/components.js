@@ -1,5 +1,82 @@
+const {
+  ActionRowBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+} = require('discord.js');
+
 const { roleMenus } = require('../lib/db');
 const { renderResults } = require('../lib/poll');
+const { applyVerification } = require('../lib/verify');
+
+function verificationModal() {
+  return new ModalBuilder()
+    .setCustomId('verify:submit')
+    .setTitle('Student verification')
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('full_name')
+          .setLabel('Full name')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(32)
+          .setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('student_number')
+          .setLabel('Student number')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(20)
+          .setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('team_id')
+          .setLabel('Team ID (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(10)
+          .setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('grade')
+          .setLabel('Grade')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(10)
+          .setRequired(true)
+      )
+    );
+}
+
+async function handleVerifyStart(client, interaction) {
+  await interaction.showModal(verificationModal());
+}
+
+async function handleVerifySubmit(client, interaction) {
+  const result = await applyVerification(client, interaction);
+
+  if (!result.ok) {
+    await interaction.reply({
+      content: `**Verification failed**\n${result.errors.map((line) => `- ${line}`).join('\n')}`,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const lines = [
+    `Welcome, **${result.submission.fullName}** — you are verified.`,
+    `Student number: \`${result.submission.studentNumber}\``,
+    `Grade: \`${result.submission.grade}\``,
+    result.submission.teamId ? `Team: \`${result.submission.teamId}\`` : null,
+    result.rolesGranted.length ? `Roles: ${result.rolesGranted.map((name) => `\`${name}\``).join(', ')}` : null,
+    result.nicknameSet ? 'Your nickname was updated.' : null,
+    result.createdRoles.length ? `New roles created: ${result.createdRoles.map((name) => `\`${name}\``).join(', ')}` : null,
+    ...result.failures,
+  ].filter(Boolean);
+
+  await interaction.reply({ content: lines.join('\n'), ephemeral: true });
+}
 
 async function handleRoleMenu(client, interaction) {
   const [, , roleId] = interaction.customId.split(':');
@@ -91,16 +168,23 @@ module.exports = (client) => {
   client.polls = new Map();
 
   client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isButton()) return;
-
     try {
-      if (interaction.customId.startsWith('rolemenu:')) {
+      if (interaction.isModalSubmit() && interaction.customId === 'verify:submit') {
+        await handleVerifySubmit(client, interaction);
+        return;
+      }
+
+      if (!interaction.isButton()) return;
+
+      if (interaction.customId === 'verify:start') {
+        await handleVerifyStart(client, interaction);
+      } else if (interaction.customId.startsWith('rolemenu:')) {
         await handleRoleMenu(client, interaction);
       } else if (interaction.customId.startsWith('poll:vote:')) {
         await handlePollVote(client, interaction);
       }
     } catch (error) {
-      console.error(`Button ${interaction.customId} failed:`, error);
+      console.error(`Component ${interaction.customId} failed:`, error);
     }
   });
 };

@@ -1,6 +1,6 @@
 const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 
-const { verifyLog } = require('../../lib/db');
+const { verifications } = require('../../lib/db');
 const { truncate } = require('../../lib/helpers');
 
 module.exports = {
@@ -65,7 +65,7 @@ module.exports = {
 
     if (subcommand === 'verifications') {
       const limit = interaction.options.getInteger('limit') ?? 10;
-      const rows = verifyLog.recent(guild.id, limit);
+      const rows = verifications.recent(guild.id, limit);
 
       if (rows.length === 0) {
         await interaction.reply({ content: 'No verifications have been recorded yet.', ephemeral: true });
@@ -74,14 +74,17 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setColor('#00FF00')
-        .setTitle(`Recent verifications (${rows.length})`)
+        .setTitle(`Recent verifications (${verifications.count(guild.id)} total)`)
         .setDescription(
           rows
             .map(
               (row) =>
-                `• <@${row.user_id}> — <t:${Math.floor(row.created_at / 1000)}:R>`
+                `• <@${row.user_id}> — **${row.full_name}** (#${row.student_number}, grade ${row.grade}${
+                  row.team_id ? `, team ${row.team_id}` : ''
+                })`
             )
             .join('\n')
+            .slice(0, 4000)
         )
         .setTimestamp();
 

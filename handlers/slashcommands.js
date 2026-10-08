@@ -45,7 +45,9 @@ module.exports = (client) => {
       }
 
       if (command.userPerms?.length) {
-        const missing = hasAll(interaction.member.permissions, command.userPerms);
+        const memberPerms = interaction.inGuild() ? interaction.member.permissions : null;
+        const missing = memberPerms ? hasAll(memberPerms, command.userPerms) : command.userPerms;
+
         if (missing.length) {
           await interaction.reply({
             content: `You need the following permissions: ${missing.join(', ')}`,

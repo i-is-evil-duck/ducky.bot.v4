@@ -39,6 +39,8 @@ module.exports = {
 
     const created = !reused;
 
+    let sent = 0;
+
     try {
       for (let i = 1; i <= count; i++) {
         await hook.send({
@@ -46,11 +48,12 @@ module.exports = {
           avatarURL: interaction.user.displayAvatarURL(),
           content: String(i),
         });
+        sent = i;
       }
     } catch (error) {
       console.error('Count command failed:', error);
       await interaction
-        .reply({ content: `Stopped at ${i - 1}: ${error.message}`, ephemeral: true })
+        .reply({ content: `Stopped at ${sent}: ${error.message}`, ephemeral: true })
         .catch(() => {});
       return;
     } finally {

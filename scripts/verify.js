@@ -9,7 +9,16 @@ fs.rmSync(TEST_DIR, { recursive: true, force: true });
 process.env.DATA_DIR = TEST_DIR;
 
 const { collectCommands } = require('../lib/commands');
-const { reminders, verifyLog, warnings, tickets, roleMenus } = require('../lib/db');
+const {
+  reminders,
+  verifyLog,
+  verifications,
+  warnings,
+  tickets,
+  roleMenus,
+  settings,
+} = require('../lib/db');
+const { getSettings, saveSettings, roleNameFor, parseSubmission } = require('../lib/verify');
 
 const checks = [];
 const record = (name, fn) => {
@@ -116,6 +125,69 @@ record('role menus persist and serialise', () => {
   const menu = roleMenus.byMessage('m2');
   assert.deepStrictEqual(menu.roles, ['111', '222'], 'roles not parsed');
   assert.strictEqual(roleMenus.remove(id), true, 'delete failed');
+});
+
+record('verification settings default and round-trip', () => {
+  const defaults = getSettings('g9');
+  assert.strictEqual(defaults.verifiedRoleName, 'verified', 'unexpected default role');
+  assert.strictEqual(defaults.setNickname, true, 'nickname should default on');
+
+  saveSettings('g9', { gradeRolePrefix: 'year', setNickname: false });
+  const updated = getSettings('g9');
+  assert.strictEqual(updated.gradeRolePrefix, 'year', 'patch not applied');
+  assert.strictEqual(updated.setNickname, false, 'boolean patch not applied');
+  assert.strictEqual(updated.verifiedRoleName, 'verified', 'patch clobbered other keys');
+});
+
+record('verification role names follow configured prefixes', () => {
+  const config = { verifiedRoleName: 'verified', teamRolePrefix: 'team', gradeRolePrefix: 'grade' };
+  assert.strictEqual(roleNameFor('verified', null, config), 'verified');
+  assert.strictEqual(roleNameFor('grade', '10', config), 'grade 10');
+  assert.strictEqual(roleNameFor('team', '4', config), 'team 4');
+  assert.strictEqual(
+    roleNameFor('grade', '  10  ', { ...config, gradeRolePrefix: 'year' }),
+    'year 10',
+    'should tidy whitespace'
+  );
+});
+
+record('verification submissions are validated', () => {
+  const makeInteraction = (fields) => ({
+    fields: { getTextInputValue: (id) => fields[id] },
+  });
+
+  const good = parseSubmission(
+    makeInteraction({ full_name: 'Ada Lovelace', student_number: 'S12345', team_id: '', grade: '10' })
+  );
+  assert.deepStrictEqual(good.errors, [], 'valid submission rejected');
+  assert.strictEqual(good.teamId, null, 'blank team should become null');
+
+  const bad = parseSubmission(
+    makeInteraction({ full_name: 'A', student_number: '!!', team_id: '', grade: '' })
+  );
+  assert.ok(bad.errors.length === 3, `expected 3 errors, got ${bad.errors.length}`);
+});
+
+record('verifications persist and are queryable', () => {
+  const id = verifications.add({
+    guildId: 'g7',
+    userId: 'u9',
+    fullName: 'Grace Hopper',
+    studentNumber: 'S999',
+    teamId: '4',
+    grade: '12',
+    nicknameSet: true,
+    rolesGranted: ['verified', 'grade 12', 'team 4'],
+  });
+
+  assert.ok(id > 0, 'no row id returned');
+  assert.strictEqual(verifications.count('g7'), 1, 'count wrong');
+  assert.strictEqual(verifications.existsFor('g7', 'u9'), true, 'existsFor should be true');
+  assert.strictEqual(verifications.existsFor('g7', 'nope'), false, 'existsFor should be false');
+
+  const [row] = verifications.recent('g7', 5);
+  assert.strictEqual(row.full_name, 'Grace Hopper', 'name not stored');
+  assert.strictEqual(row.roles_granted, 'verified,grade 12,team 4', 'roles not stored');
 });
 
 const failed = checks.filter((check) => !check.ok);

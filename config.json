@@ -1,5 +1,6 @@
 {
   "prefix": "/",
+  "deployScope": "guild",
   "devGuildId": "",
   "guildIds": [],
   "adminRoleName": "admin",

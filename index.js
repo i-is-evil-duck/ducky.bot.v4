@@ -18,15 +18,12 @@ const client = new Client({
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.MessageContent,
   ],
   partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember, Partials.Reaction],
 });
 
-client.commands = new Collection();
 client.slashCommands = new Collection();
 client.cooldowns = new Collection();
-client.prefix = config.prefix;
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled rejection:', reason);
@@ -48,6 +45,8 @@ client.once(Events.ClientReady, (ready) => {
 });
 
 client.on(Events.GuildCreate, async (guild) => {
+  if (config.deployScope === 'global') return;
+
   try {
     const { deployGuild } = require('./lib/deploy');
     await deployGuild(client.rest, client.user.id, guild.id);

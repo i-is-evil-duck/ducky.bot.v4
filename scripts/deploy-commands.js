@@ -3,7 +3,15 @@ require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 
 const config = require('../config.json');
-const { payload, newRest, currentApplicationId, deployGlobal, deployGuild } = require('../lib/deploy');
+const {
+  payload,
+  newRest,
+  currentApplicationId,
+  deployGlobal,
+  deployAllGuilds,
+  clearGlobal,
+  clearGuild,
+} = require('../lib/deploy');
 
 const token = process.env.TOKEN;
 
@@ -33,19 +41,41 @@ async function discoverGuilds() {
   const body = payload();
   const configured = explicitGuilds();
   const guildIds = configured.length > 0 ? configured : await discoverGuilds();
+  const scope = config.deployScope === 'global' ? 'global' : 'guild';
 
   const rest = newRest(token);
   const clientId = await currentApplicationId(rest);
+  const failures = [];
 
-  console.log(`Deploying ${body.length} commands as application ${clientId}`);
+  console.log(`Deploying ${body.length} commands as application ${clientId} (scope: ${scope})`);
 
-  console.log('\n[global] unregistering existing commands...');
-  await deployGlobal(rest, clientId);
-  console.log(`[global] registered ${body.length} commands`);
+  if (scope === 'guild') {
+    console.log('\n[global] clearing global commands to avoid duplicates...');
+    await clearGlobal(rest, clientId);
 
-  for (const guildId of guildIds) {
-    await deployGuild(rest, clientId, guildId);
-    console.log(`[guild ${guildId}] registered ${body.length} commands`);
+    failures.push(...(await deployAllGuilds(rest, clientId, guildIds)));
+  } else {
+    console.log('\n[global] registering commands...');
+    await deployGlobal(rest, clientId);
+
+    for (const guildId of guildIds) {
+      try {
+        await clearGuild(rest, clientId, guildId);
+        console.log(`[guild ${guildId}] cleared guild-scoped copies`);
+      } catch (error) {
+        failures.push({ guildId, error: error.message });
+        console.warn(`[guild ${guildId}] FAILED to clear: ${error.message}`);
+      }
+    }
+  }
+
+  if (failures.length > 0) {
+    console.log(`\n${failures.length} target(s) failed:`);
+    for (const failure of failures) {
+      console.log(`  - guild ${failure.guildId}: ${failure.error}`);
+    }
+    console.log('\nDone with errors.');
+    process.exit(1);
   }
 
   console.log('\nDone.');
