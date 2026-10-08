@@ -392,7 +392,7 @@ record('rollover plan uses the highest grade when a member has two', () => {
 
   assert.strictEqual(plan.size, 2, 'both rows holding a grade role should be planned');
   assert.strictEqual(plan.get('m1').grade, 10, 'highest grade should win, avoiding a double bump');
-  assert.strictEqual(plan.get('m1').fromRoleId, 'r10');
+  assert.ok(plan.get('m1').fromRoleIds.includes('r10'), 'the highest grade role should be listed for removal');
   assert.strictEqual(plan.get('m2').grade, 9);
 });
 
@@ -414,6 +414,25 @@ record('rollover counts offline members because it lists them over REST', () => 
 
   assert.strictEqual(counts.get(10), 2, 'both members with grade 10 should be counted');
   assert.strictEqual(counts.get(9), 0, 'the member in both should count once, at the highest grade');
+});
+
+record('rollover clears every stale grade role a member is holding', () => {
+  const rows = [{ user: { id: 'm1', username: 'user' }, roles: ['r9', 'r11'] }];
+
+  const discovered = new Map([
+    [9, { grade: 9, role: { id: 'r9', name: 'Grade 9' } }],
+    [11, { grade: 11, role: { id: 'r11', name: 'Grade 11' } }],
+  ]);
+
+  const { plan } = buildPlan(rows, discovered, null);
+  const entry = plan.get('m1');
+
+  assert.strictEqual(entry.grade, 11, 'should advance from the highest grade held');
+  assert.deepStrictEqual(
+    entry.fromRoleIds.sort(),
+    ['r11', 'r9'],
+    'every grade role should be removed, not just the highest, or the stale one sticks forever'
+  );
 });
 
 record('rollover plan skips members who already graduated', () => {
