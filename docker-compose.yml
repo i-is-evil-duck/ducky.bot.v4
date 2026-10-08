@@ -1,0 +1,8 @@
+services:
+  ducky.bot.v1:
+    image: ducky.bot.v1
+    container_name: ducky.bot.v1
+    environment:
+      - TOKEN=${TOKEN}
+      - TRYLEAP_API_TOKEN=${TRYLEAP_API_TOKEN}
+    restart: always
