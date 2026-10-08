@@ -412,6 +412,54 @@ record('rollover plan skips members who already graduated', () => {
 
 const toCollection = (messages) => new Collection(new Map(messages.map((m) => [m.id, m])));
 
+record('nickname blockers are reported accurately instead of blaming permissions', () => {
+  const { nicknameBlockReason } = require('../lib/verify');
+
+  const withNicknames = { has: () => true };
+  const withoutNicknames = { has: () => false };
+
+  const makeMe = (position, permissions = withNicknames, name = 'Ducky Bot') => ({
+    permissions,
+    roles: { highest: { position, name } },
+  });
+
+  const makeMember = (position, name = 'member') => ({
+    roles: { highest: { position, name } },
+  });
+
+  const guild = (ownerId = 'owner') => ({ ownerId });
+
+  assert.ok(
+    nicknameBlockReason(guild('target'), { id: 'target' }, makeMe(10)).includes('server owner'),
+    'the server owner can never be renamed'
+  );
+
+  assert.strictEqual(
+    nicknameBlockReason(guild('owner'), makeMember(3), makeMe(10)),
+    null,
+    'a member below the bot and not the owner should be renameable'
+  );
+
+  assert.ok(
+    nicknameBlockReason(guild('owner'), makeMember(5), makeMe(5)).length > 0,
+    'equal role positions are not enough'
+  );
+
+  assert.ok(
+    nicknameBlockReason(
+      guild('owner'),
+      makeMember(3),
+      makeMe(10, withoutNicknames)
+    ).includes('Manage Nicknames'),
+    'a genuine missing permission should say so'
+  );
+
+  assert.ok(
+    nicknameBlockReason(guild('owner'), makeMember(5), makeMe(2)).includes('not above'),
+    'a bot below the member should mention the hierarchy'
+  );
+});
+
 record('purge really deletes: all three subcommands pass a Collection to bulkDelete', () => {
   const purge = require('../commands/moderator/purge');
 
