@@ -316,6 +316,12 @@ record('grades are read out of existing role names in any style', () => {
     'The Graduated': null,
     'grade': null,
     'team swarm': null,
+    'gregor098': null,
+    'gregor108': null,
+    'gregor128': null,
+    'robot2024': null,
+    'team 118': null,
+    'grade 118': null,
   };
 
   for (const [name, expected] of Object.entries(cases)) {
@@ -411,6 +417,88 @@ record('rollover plan skips members who already graduated', () => {
 });
 
 const toCollection = (messages) => new Collection(new Map(messages.map((m) => [m.id, m])));
+
+record('rollover results render into embed chunks of 25 fields', () => {
+  const { describeRollover } = require('../lib/rollover');
+
+  const results = Array.from({ length: 30 }, (_, index) => ({
+    guild: `server-${index}`,
+    guildId: '1',
+    moved: index,
+    targets: { 'grade 9': 'Grade 10' },
+    graduatedRoleName: 'The Graduated',
+    graduatedExists: true,
+  }));
+
+  const embeds = describeRollover(results, { dryRun: true });
+
+  assert.strictEqual(embeds.length, 2, '30 servers should need 2 embeds');
+  assert.strictEqual(embeds[0].toJSON().fields.length, 25, 'first embed should hold 25 fields');
+  assert.strictEqual(embeds[1].toJSON().fields.length, 5, 'second embed should hold the remaining 5');
+  assert.match(embeds[1].toJSON().title, /2\/2/, 'second embed should say which part it is');
+
+  const single = describeRollover([results[0]], { dryRun: false });
+  assert.strictEqual(single.length, 1, 'one server should be a single embed');
+  assert.strictEqual(single[0].toJSON().fields.length, 1);
+  assert.match(single[0].toJSON().title, /Rollover applied/);
+
+  const none = describeRollover([], { dryRun: true });
+  assert.strictEqual(none.length, 1, 'no results should still produce a valid embed');
+  assert.strictEqual(none[0].toJSON().fields, undefined, 'empty embed should have no fields');
+
+  for (const embed of embeds) {
+    for (const field of embed.toJSON().fields) {
+      assert.ok(field.value.length <= 1024, `field too long: ${field.value.length}`);
+    }
+  }
+});
+
+record('/verify rollover replies without throwing, even with many servers', () => {
+  const verify = require('../commands/moderator/verify');
+
+  const fakeGuild = (index) => ({
+    id: `g${index}`,
+    name: `server-${index}`,
+    ownerId: 'owner',
+    roles: { cache: new Collection() },
+    channels: { cache: new Collection() },
+    members: { me: null },
+  });
+
+  const guilds = new Collection();
+  for (let index = 0; index < 30; index++) guilds.set(`g${index}`, fakeGuild(index));
+
+  const replied = [];
+  const followedUp = [];
+  let deferred = false;
+
+  const interaction = {
+    guild: fakeGuild(0),
+    options: { getSubcommand: () => 'rollover', getString: () => 'preview' },
+    deferReply: async () => {
+      deferred = true;
+    },
+    editReply: async (payload) => replied.push(payload),
+    followUp: async (payload) => followedUp.push(payload),
+  };
+
+  const client = { guilds: { cache: guilds }, user: { tag: 'test#0001' } };
+
+  return verify
+    .run(client, interaction, [])
+    .then(() => {
+      assert.strictEqual(deferred, true, 'should defer because a rollover is slow');
+      assert.strictEqual(replied.length, 1, 'should reply once with the first embed');
+      assert.ok(followedUp.length >= 1, 'extra servers should be sent as follow-ups');
+      assert.ok(replied[0].embeds[0].toJSON().title, 'embed should have a title');
+      for (const payload of [...replied, ...followedUp]) {
+        for (const embed of payload.embeds) {
+          const fields = embed.toJSON().fields ?? [];
+          assert.ok(fields.length <= 25, 'embeds must respect the 25 field limit');
+        }
+      }
+    });
+});
 
 record('nickname blockers are reported accurately instead of blaming permissions', () => {
   const { nicknameBlockReason } = require('../lib/verify');

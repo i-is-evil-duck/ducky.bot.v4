@@ -9,7 +9,7 @@ const {
 const { verifications } = require('../../lib/db');
 const { getSettings, saveSettings, canManageNicknames, MAX_GRADE } = require('../../lib/verify');
 const { truncate } = require('../../lib/helpers');
-const { mostRecentRollover, runRollover } = require('../../lib/rollover');
+const { mostRecentRollover, runRollover, describeRollover } = require('../../lib/rollover');
 const { discoverGradeRoles, gradeSummary } = require('../../lib/grades');
 
 const BUTTON_ID = 'verify:start';
@@ -153,33 +153,18 @@ module.exports = {
         return;
       }
 
-      const embed = new EmbedBuilder()
-        .setColor(dryRun ? '#0099ff' : '#00FF00')
-        .setTitle(dryRun ? 'Rollover preview' : 'Rollover applied');
+      const embeds = describeRollover(results, { dryRun });
 
-      for (const result of results) {
-        const lines = [`<#${guild.id}>`];
+      for (const [index, embed] of embeds.entries()) {
+        const payload = { embeds: [embed] };
 
-        if (result.error) {
-          lines.push(`Error: ${result.error}`);
-        } else if (result.skipped) {
-          lines.push(`Skipped: ${result.reason}`);
-        } else if (result.dryRun) {
-          lines.push(`**${result.moved}** member(s) would move:`);
-
-          for (const [from, to] of Object.entries(result.targets)) {
-            lines.push(`\`${from}\` → \`${to}\``);
-          }
-
-          lines.push(`Graduated role: \`${result.graduatedRoleName}\` (${result.graduatedExists ? 'already exists' : 'will be created'})`);
+        if (index === 0) {
+          await interaction.editReply(payload);
         } else {
-          lines.push(`**${result.moved}** member(s) advanced`);
+          await interaction.followUp({ ...payload, ephemeral: true });
         }
-
-        embed.addFields({ name: result.guild, value: lines.join('\n').slice(0, 1020) });
       }
 
-      await interaction.editReply({ embeds: [embed.slice(0, 25)] });
       return;
     }
 
