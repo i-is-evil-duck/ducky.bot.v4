@@ -47,6 +47,16 @@ client.once('clientReady', (ready) => {
   start(client);
 });
 
+client.on('guildCreate', async (guild) => {
+  try {
+    const { deployGuild } = require('./lib/deploy');
+    await deployGuild(client.rest, client.user.id, guild.id);
+    console.log(`📝 Deployed commands to ${guild.name} (${guild.id})`);
+  } catch (error) {
+    console.error(`Failed to deploy commands to ${guild.id}:`, error.message);
+  }
+});
+
 client.login(process.env.TOKEN).catch((error) => {
   console.error('Login failed:', error.message);
   process.exit(1);

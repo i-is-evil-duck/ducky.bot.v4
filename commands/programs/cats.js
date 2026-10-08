@@ -1,9 +1,6 @@
-const fs = require('fs');
-const path = require('path');
-
 const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
+const MAINTENANCE = true;
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -13,20 +10,35 @@ module.exports = {
   cooldown: 5000,
 
   async run(client, interaction) {
+    if (MAINTENANCE) {
+      await interaction.reply({ embeds: [maintenanceEmbed(client, 'cat pictures')] });
+      return;
+    }
+
     await sendRandomImage(client, interaction, 'cats', 'Random cat');
   },
 };
 
+function maintenanceEmbed(client, subject) {
+  return new EmbedBuilder()
+    .setColor('#FF0000')
+    .setTitle('Under maintenance')
+    .setDescription(
+      `\`${subject}\` are being rebuilt right now. The image library is being repackaged for the new slash command setup — check back shortly.`
+    )
+    .setFooter({ text: client.user.tag })
+    .setTimestamp();
+}
+
 async function sendRandomImage(client, interaction, folder, title) {
-  const assetsDir = process.env.ASSETS_DIR
-    ? path.join(process.env.ASSETS_DIR, folder)
-    : path.join(__dirname, '..', '..', 'assets', folder);
+  const fs = require('fs');
+  const path = require('path');
+  const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
+
+  const assetsDir = path.join(__dirname, '..', '..', 'assets', folder);
 
   if (!fs.existsSync(assetsDir)) {
-    await interaction.reply({
-      content: `No \`${folder}\` library found. Add images to \`assets/${folder}/\`.`,
-      ephemeral: true,
-    });
+    await interaction.reply({ content: `No \`${folder}\` library found.`, ephemeral: true });
     return;
   }
 
@@ -53,4 +65,5 @@ async function sendRandomImage(client, interaction, folder, title) {
   });
 }
 
+module.exports.maintenanceEmbed = maintenanceEmbed;
 module.exports.sendRandomImage = sendRandomImage;

@@ -1,9 +1,9 @@
 require('dotenv').config();
 
-const { REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits } = require('discord.js');
 
 const config = require('../config.json');
-const { collectCommands } = require('../lib/commands');
+const { payload, newRest, currentApplicationId, deployGlobal, deployGuild } = require('../lib/deploy');
 
 const token = process.env.TOKEN;
 
@@ -12,37 +12,43 @@ if (!token) {
   process.exit(1);
 }
 
-const body = collectCommands().map((command) => command.data.toJSON());
+function explicitGuilds() {
+  return [...new Set([config.devGuildId, ...(config.guildIds ?? [])].filter(Boolean))];
+}
 
-const guildIds = [...new Set([config.devGuildId, ...(config.guildIds ?? [])].filter(Boolean))];
+async function discoverGuilds() {
+  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  await client.login(token);
 
-function routes(clientId) {
-  const targets = [{ scope: 'global', route: Routes.applicationCommands(clientId) }];
-
-  for (const guildId of guildIds) {
-    targets.push({ scope: `guild ${guildId}`, route: Routes.applicationGuildCommands(clientId, guildId) });
+  try {
+    const ids = [...client.guilds.cache.keys()];
+    console.log(`Auto-detected ${ids.length} guild(s) from the token.`);
+    return ids;
+  } finally {
+    await client.destroy();
   }
-
-  return targets;
 }
 
 (async () => {
-  const rest = new REST({ version: '10' }).setToken(token);
+  const body = payload();
+  const configured = explicitGuilds();
+  const guildIds = configured.length > 0 ? configured : await discoverGuilds();
 
-  const application = await rest.get(Routes.oauth2CurrentApplication());
-  console.log(`Deploying ${body.length} commands for ${application.name} (${application.id})`);
+  const rest = newRest(token);
+  const clientId = await currentApplicationId(rest);
 
-  for (const { scope, route } of routes(application.id)) {
-    console.log(`\n[${scope}] unregistering existing commands...`);
-    await rest.put(route, { body: [] });
+  console.log(`Deploying ${body.length} commands as application ${clientId}`);
 
-    console.log(`[${scope}] registering ${body.length} commands...`);
-    await rest.put(route, { body });
+  console.log('\n[global] unregistering existing commands...');
+  await deployGlobal(rest, clientId);
+  console.log(`[global] registered ${body.length} commands`);
 
-    console.log(`[${scope}] done`);
+  for (const guildId of guildIds) {
+    await deployGuild(rest, clientId, guildId);
+    console.log(`[guild ${guildId}] registered ${body.length} commands`);
   }
 
-  console.log('\nAll commands deployed successfully.');
+  console.log('\nDone.');
 })().catch((error) => {
   console.error('Command deployment failed:', error);
   process.exit(1);

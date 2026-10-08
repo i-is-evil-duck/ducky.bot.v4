@@ -27,6 +27,8 @@ function loadList() {
   return { entries, file };
 }
 
+const MAINTENANCE = true;
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('vid')
@@ -48,6 +50,22 @@ module.exports = {
   cooldown: 5000,
 
   async run(client, interaction, args) {
+    if (MAINTENANCE) {
+      await interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor('#FF0000')
+            .setTitle('Under maintenance')
+            .setDescription(
+              'The video list is being rebuilt for the new slash command setup, so lookups and the list are offline for now. Check back shortly.'
+            )
+            .setFooter({ text: client.user.tag })
+            .setTimestamp(),
+        ],
+      });
+      return;
+    }
+
     const { entries, file } = loadList();
 
     if (entries.length === 0) {
@@ -82,6 +100,11 @@ module.exports = {
   },
 
   async autocomplete(interaction) {
+    if (MAINTENANCE) {
+      await interaction.respond([]);
+      return;
+    }
+
     if (interaction.options.getFocused(true).name !== 'video') {
       await interaction.respond([]);
       return;
