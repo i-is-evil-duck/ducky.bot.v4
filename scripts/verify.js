@@ -18,7 +18,9 @@ const {
   roleMenus,
   settings,
 } = require('../lib/db');
-const { getSettings, saveSettings, roleNameFor, parseSubmission } = require('../lib/verify');
+const { getSettings, saveSettings, roleNameFor, parseSubmission, GRADES, MAX_GRADE } = require('../lib/verify');
+const { isDue, mostRecentRollover, buildPlan } = require('../lib/rollover');
+const { parseGradeFromName, buildRoleName, discoverGradeRoles, gradeSummary } = require('../lib/grades');
 
 const checks = [];
 const record = (name, fn) => {
@@ -142,30 +144,97 @@ record('verification settings default and round-trip', () => {
 record('verification role names follow configured prefixes', () => {
   const config = { verifiedRoleName: 'verified', teamRolePrefix: 'team', gradeRolePrefix: 'grade' };
   assert.strictEqual(roleNameFor('verified', null, config), 'verified');
-  assert.strictEqual(roleNameFor('grade', '10', config), 'grade 10');
-  assert.strictEqual(roleNameFor('team', '4', config), 'team 4');
+  assert.strictEqual(roleNameFor('grade', 10, config), 'grade 10');
+  assert.strictEqual(roleNameFor('team', 'a', config), 'team a');
+  assert.strictEqual(roleNameFor('graduated', null, config), 'The Graduated');
   assert.strictEqual(
-    roleNameFor('grade', '  10  ', { ...config, gradeRolePrefix: 'year' }),
+    roleNameFor('grade', 10, { ...config, gradeRolePrefix: 'year' }),
     'year 10',
-    'should tidy whitespace'
+    'should respect the configured prefix'
   );
 });
 
-record('verification submissions are validated', () => {
-  const makeInteraction = (fields) => ({
-    fields: { getTextInputValue: (id) => fields[id] },
-  });
+record('grade and team letter are validated correctly', () => {
+  const submit = (fields) =>
+    parseSubmission({ fields: { getTextInputValue: (id) => fields[id] } });
 
-  const good = parseSubmission(
-    makeInteraction({ full_name: 'Ada Lovelace', student_number: 'S12345', team_id: '', grade: '10' })
-  );
-  assert.deepStrictEqual(good.errors, [], 'valid submission rejected');
-  assert.strictEqual(good.teamId, null, 'blank team should become null');
+  const full = submit({ full_name: 'Ada Lovelace', student_number: 'S12345', team_letter: 'B', grade: '11' });
+  assert.deepStrictEqual(full.errors, [], 'valid submission rejected');
+  assert.strictEqual(full.teamLetter, 'b', 'single letters should normalise to lowercase');
+  assert.strictEqual(full.grade, 11, 'grade not parsed');
 
-  const bad = parseSubmission(
-    makeInteraction({ full_name: 'A', student_number: '!!', team_id: '', grade: '' })
+  const swarm = submit({ full_name: 'Ada Lovelace', student_number: 'S12345', team_letter: 'SWARM', grade: '8' });
+  assert.strictEqual(swarm.teamLetter, 'SWARM', 'SWARM not accepted');
+  assert.strictEqual(swarm.grade, 8, 'lowest grade rejected');
+
+  const neither = submit({ full_name: 'Ada Lovelace', student_number: 'S12345', team_letter: '', grade: '' });
+  assert.deepStrictEqual(neither.errors, [], 'grade and team are optional');
+  assert.strictEqual(neither.teamLetter, null, 'blank team should be null');
+  assert.strictEqual(neither.grade, null, 'blank grade should be null');
+
+  for (const grade of ['7', '13', 'ten', '11.5', '0']) {
+    const bad = submit({ full_name: 'Ada Lovelace', student_number: 'S12345', team_letter: '', grade });
+    assert.ok(bad.errors.length >= 1, `grade ${grade} should be rejected`);
+  }
+
+  for (const team of ['ab', '1', 'alpha', 'SWARMED']) {
+    const bad = submit({ full_name: 'Ada Lovelace', student_number: 'S12345', team_letter: team, grade: '' });
+    assert.ok(bad.errors.length >= 1, `team ${team} should be rejected`);
+  }
+});
+
+record('grade rollover is due once per September 1st', () => {
+  const january2024 = new Date(2024, 0, 1).getTime();
+  const july2024 = new Date(2024, 6, 31, 12).getTime();
+  const september2024 = new Date(2024, 8, 1, 0, 0, 0).getTime();
+  const march2025 = new Date(2025, 2, 15, 12).getTime();
+  const september2025 = new Date(2025, 8, 1, 0, 0, 0).getTime();
+
+  assert.strictEqual(
+    isDue({ configuredAt: january2024, lastRollover: 0 }, july2024),
+    false,
+    'must not fire before Sep 1'
   );
-  assert.ok(bad.errors.length === 3, `expected 3 errors, got ${bad.errors.length}`);
+
+  assert.strictEqual(
+    isDue({ configuredAt: january2024, lastRollover: 0 }, september2024),
+    true,
+    'must fire on Sep 1'
+  );
+
+  const afterRunning = { configuredAt: january2024, lastRollover: september2024 };
+  assert.strictEqual(isDue(afterRunning, march2025), false, 'must not fire twice in one season');
+  assert.strictEqual(isDue(afterRunning, september2025), true, 'must fire again the next September');
+
+  assert.strictEqual(isDue(null), false, 'unconfigured guilds must never roll over');
+  assert.strictEqual(
+    isDue({ lastRollover: 0 }, september2024),
+    false,
+    'a guild with no configuredAt must never roll over'
+  );
+
+  assert.strictEqual(
+    isDue({ configuredAt: october2024(september2024), lastRollover: 0 }, september2025),
+    true,
+    'a guild configured after Sep 1 waits for the following September'
+  );
+});
+
+function october2024(sep) {
+  return sep + 30 * 24 * 60 * 60 * 1000;
+}
+
+record('most recent rollover boundary points at Sep 1', () => {
+  assert.strictEqual(
+    mostRecentRollover(new Date(2025, 3, 2).getTime()),
+    new Date(2024, 8, 1).getTime(),
+    'March 2025 should resolve to Sep 1 2024'
+  );
+  assert.strictEqual(
+    mostRecentRollover(new Date(2025, 9, 20).getTime()),
+    new Date(2025, 8, 1).getTime(),
+    'October 2025 should resolve to Sep 1 2025'
+  );
 });
 
 record('verifications persist and are queryable', () => {
@@ -174,10 +243,10 @@ record('verifications persist and are queryable', () => {
     userId: 'u9',
     fullName: 'Grace Hopper',
     studentNumber: 'S999',
-    teamId: '4',
-    grade: '12',
+    teamLetter: 'SWARM',
+    grade: 12,
     nicknameSet: true,
-    rolesGranted: ['verified', 'grade 12', 'team 4'],
+    rolesGranted: ['verified', 'grade 12', 'team SWARM'],
   });
 
   assert.ok(id > 0, 'no row id returned');
@@ -187,7 +256,133 @@ record('verifications persist and are queryable', () => {
 
   const [row] = verifications.recent('g7', 5);
   assert.strictEqual(row.full_name, 'Grace Hopper', 'name not stored');
-  assert.strictEqual(row.roles_granted, 'verified,grade 12,team 4', 'roles not stored');
+  assert.strictEqual(row.team_letter, 'SWARM', 'team letter not stored');
+  assert.strictEqual(row.grade, '12', 'grade not stored');
+});
+
+record('a verification can be recorded without a grade or team', () => {
+  verifications.add({
+    guildId: 'g8',
+    userId: 'u10',
+    fullName: 'No Grade',
+    studentNumber: 'S000',
+    teamLetter: null,
+    grade: null,
+    nicknameSet: false,
+    rolesGranted: ['verified'],
+  });
+
+  const [row] = verifications.recent('g8', 1);
+  assert.strictEqual(row.grade, null, 'grade should be null');
+  assert.strictEqual(row.team_letter, null, 'team letter should be null');
+});
+
+record('grades are read out of existing role names in any style', () => {
+  const cases = {
+    'grade 9': 9,
+    'Grade 10': 10,
+    'Gr8': 8,
+    '9th Grade': 9,
+    'Year 11': 11,
+    '12th grade': 12,
+    'Verified': null,
+    'Team A': null,
+    'Grade Lead': null,
+    'The Graduated': null,
+    'grade': null,
+    'team swarm': null,
+  };
+
+  for (const [name, expected] of Object.entries(cases)) {
+    assert.strictEqual(parseGradeFromName(name), expected, `wrong grade for "${name}"`);
+  }
+});
+
+record('new role names adopt the servers existing convention', () => {
+  assert.strictEqual(buildRoleName('Grade 9', 10), 'Grade 10');
+  assert.strictEqual(buildRoleName('grade 8', 12), 'grade 12');
+  assert.strictEqual(buildRoleName('Gr9', 10), 'Gr10');
+  assert.strictEqual(buildRoleName('Year 9', 11), 'Year 11');
+
+  assert.strictEqual(buildRoleName('9th Grade', 11), '11th Grade', 'ordinal suffix must be kept');
+  assert.strictEqual(buildRoleName('9th Grade', 12), '12th Grade');
+  assert.strictEqual(buildRoleName('1st Grade', 2), '2nd Grade', 'nd suffix is wrong');
+  assert.strictEqual(buildRoleName('3rd Grade', 11), '11th Grade', 'th suffix is wrong');
+  assert.strictEqual(buildRoleName('2nd Grade', 21), '21st Grade', '21 is st, not nd');
+
+  assert.strictEqual(buildRoleName(null, 10), null);
+  assert.strictEqual(buildRoleName('no digits here', 10), null);
+});
+
+record('grade roles are discovered across naming styles', () => {
+  const fakeGuild = {
+    roles: {
+      cache: new Map(
+        [
+          { name: 'Grade 8', members: new Map([['a', {}]]) },
+          { name: 'Grade 9', members: new Map() },
+          { name: 'Grade 10', members: new Map() },
+          { name: 'verified', members: new Map() },
+          { name: 'Team A', members: new Map() },
+        ].map((role) => [role.name, role])
+      ),
+      find(predicate) {
+        for (const role of this.cache.values()) if (predicate(role)) return role;
+        return undefined;
+      },
+    },
+  };
+
+  const discovered = discoverGradeRoles(fakeGuild);
+
+  assert.strictEqual(discovered.size, 3, 'should find grades 8, 9 and 10 only');
+  assert.ok(discovered.has(8) && discovered.has(9) && discovered.has(10), 'missing grades');
+  assert.ok(!discovered.has(999), 'should ignore out-of-range numbers');
+  assert.strictEqual(discovered.get(9).role.members.size, 0, 'role not captured');
+  assert.strictEqual(gradeSummary(discovered), 'Grade 8 (1), Grade 9 (0), Grade 10 (0)', 'summary wrong');
+});
+
+record('rollover plan uses the highest grade when a member has two', () => {
+  const member = {
+    id: 'm1',
+    user: { tag: 'user#1' },
+    roles: { cache: new Map() },
+  };
+
+  const other = { id: 'm2', user: { tag: 'user#2' }, roles: { cache: new Map() } };
+
+  const nine = { grade: 9, role: { name: 'Grade 9', members: new Map([['m1', member], ['m2', other]]) } };
+  const ten = { grade: 10, role: { name: 'Grade 10', members: new Map([['m1', member]]) } };
+  const discovered = new Map([
+    [9, nine],
+    [10, ten],
+  ]);
+
+  const { plan } = buildPlan(discovered, null);
+
+  assert.strictEqual(plan.size, 2, 'both members should be planned once');
+  assert.strictEqual(plan.get('m1').grade, 10, 'highest grade should win, avoiding a double bump');
+  assert.strictEqual(plan.get('m1').from.name, 'Grade 10');
+  assert.strictEqual(plan.get('m2').grade, 9);
+});
+
+record('rollover plan skips members who already graduated', () => {
+  const graduated = {
+    id: 'g-role',
+    name: 'The Graduated',
+    members: new Map(),
+  };
+
+  const member = { id: 'm1', user: { tag: 'user#1' }, roles: { cache: new Map([['g-role', {}]]) } };
+
+  const discovered = new Map([
+    [12, { grade: 12, role: { name: 'Grade 12', members: new Map([['m1', member]]) } }],
+  ]);
+
+  const { plan, skipped } = buildPlan(discovered, graduated);
+
+  assert.strictEqual(plan.size, 0, 'graduated members must not move');
+  assert.strictEqual(skipped.length, 1, 'skip should be reported');
 });
 
 const failed = checks.filter((check) => !check.ok);

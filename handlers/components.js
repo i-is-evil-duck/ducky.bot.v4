@@ -32,19 +32,19 @@ function verificationModal() {
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
-          .setCustomId('team_id')
-          .setLabel('Team ID (optional)')
+          .setCustomId('team_letter')
+          .setLabel('Team letter (optional)')
           .setStyle(TextInputStyle.Short)
-          .setMaxLength(10)
+          .setMaxLength(5)
           .setRequired(false)
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('grade')
-          .setLabel('Grade')
+          .setLabel('Grade 8-12 (optional)')
           .setStyle(TextInputStyle.Short)
-          .setMaxLength(10)
-          .setRequired(true)
+          .setMaxLength(2)
+          .setRequired(false)
       )
     );
 }
@@ -67,8 +67,8 @@ async function handleVerifySubmit(client, interaction) {
   const lines = [
     `Welcome, **${result.submission.fullName}** — you are verified.`,
     `Student number: \`${result.submission.studentNumber}\``,
-    `Grade: \`${result.submission.grade}\``,
-    result.submission.teamId ? `Team: \`${result.submission.teamId}\`` : null,
+    result.submission.grade !== null ? `Grade: \`${result.submission.grade}\`` : null,
+    result.submission.teamLetter ? `Team: \`${result.submission.teamLetter}\`` : null,
     result.rolesGranted.length ? `Roles: ${result.rolesGranted.map((name) => `\`${name}\``).join(', ')}` : null,
     result.nicknameSet ? 'Your nickname was updated.' : null,
     result.createdRoles.length ? `New roles created: ${result.createdRoles.map((name) => `\`${name}\``).join(', ')}` : null,

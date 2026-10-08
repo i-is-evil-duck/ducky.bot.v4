@@ -7,8 +7,10 @@ const {
 } = require('discord.js');
 
 const { verifications } = require('../../lib/db');
-const { getSettings, saveSettings, canManageNicknames } = require('../../lib/verify');
+const { getSettings, saveSettings, canManageNicknames, MAX_GRADE } = require('../../lib/verify');
 const { truncate } = require('../../lib/helpers');
+const { mostRecentRollover, runRollover } = require('../../lib/rollover');
+const { discoverGradeRoles, gradeSummary } = require('../../lib/grades');
 
 const BUTTON_ID = 'verify:start';
 
@@ -16,27 +18,31 @@ const DEFAULT_INSTRUCTIONS =
   'Press the button below, fill in your details, and you will be given your roles automatically.';
 
 function promptEmbed(config) {
+  const gradeNote = config.giveGradeRole
+    ? `A \`${config.gradeRolePrefix} <8-${MAX_GRADE}>\` role (raised automatically every 1 September)`
+    : null;
+
+  const graduateNote = config.giveGradeRole
+    ? `Everyone in \`${config.gradeRolePrefix} ${MAX_GRADE}\` becomes \`${config.graduatedRoleName}\` on 1 September`
+    : null;
+
   return new EmbedBuilder()
     .setColor('#eee657')
     .setTitle('Student verification')
-    .setDescription(
-      truncate(
-        config.instructions || DEFAULT_INSTRUCTIONS,
-        2000
-      )
-    )
+    .setDescription(truncate(config.instructions || DEFAULT_INSTRUCTIONS, 2000))
     .addFields(
       {
         name: 'What you will be asked for',
-        value: 'Your name, student number, team (optional) and grade.',
+        value: 'Your name, student number, team letter (optional, a-z or SWARM) and grade (optional, 8-12).',
         inline: false,
       },
       {
         name: 'What you get',
         value: [
           `The \`${config.verifiedRoleName}\` role`,
-          config.giveGradeRole ? `A \`${config.gradeRolePrefix} <grade>\` role` : null,
-          config.giveTeamRole ? `A \`${config.teamRolePrefix} <team>\` role` : null,
+          gradeNote,
+          config.giveTeamRole ? `A \`${config.teamRolePrefix} <letter>\` role` : null,
+          graduateNote,
           config.setNickname ? 'Your nickname set to your name' : null,
         ]
           .filter(Boolean)
@@ -84,6 +90,13 @@ module.exports = {
             .setMaxLength(50)
             .setRequired(false)
         )
+        .addStringOption((opt) =>
+          opt
+            .setName('graduated-role')
+            .setDescription('Role given when someone rolls past the top grade')
+            .setMaxLength(100)
+            .setRequired(false)
+        )
         .addBooleanOption((opt) =>
           opt.setName('nickname').setDescription('Set each member nickname to their name')
         )
@@ -106,6 +119,21 @@ module.exports = {
       sub
         .setName('status')
         .setDescription('Show the current verification settings and totals')
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('rollover')
+        .setDescription('Preview or run the 1 September grade rollover now')
+        .addStringOption((opt) =>
+          opt
+            .setName('mode')
+            .setDescription('preview shows what would change, run applies it')
+            .setRequired(true)
+            .addChoices(
+              { name: 'Preview (no changes)', value: 'preview' },
+              { name: 'Run now', value: 'run' }
+            )
+        )
     ),
 
   guildOnly: true,
@@ -116,6 +144,58 @@ module.exports = {
   async run(client, interaction) {
     const subcommand = interaction.options.getSubcommand();
     const guild = interaction.guild;
+
+    if (subcommand === 'rollover') {
+      const mode = interaction.options.getString('mode');
+      const dryRun = mode === 'preview';
+
+      await interaction.deferReply({ ephemeral: true });
+
+      const results = await runRollover(client, { force: true, dryRun });
+
+      if (results.length === 0) {
+        await interaction.editReply({
+          embeds: [
+            new EmbedBuilder()
+              .setColor('#FFA500')
+              .setTitle('Nothing to roll over')
+              .setDescription(
+                'No grade roles were discovered in this server, so there is nothing to advance. Use `/verify setup` to post the verification prompt first.'
+              ),
+          ],
+        });
+        return;
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(dryRun ? '#0099ff' : '#00FF00')
+        .setTitle(dryRun ? 'Rollover preview' : 'Rollover applied');
+
+      for (const result of results) {
+        const lines = [`<#${guild.id}>`];
+
+        if (result.error) {
+          lines.push(`Error: ${result.error}`);
+        } else if (result.skipped) {
+          lines.push(`Skipped: ${result.reason}`);
+        } else if (result.dryRun) {
+          lines.push(`**${result.moved}** member(s) would move:`);
+
+          for (const [from, to] of Object.entries(result.targets)) {
+            lines.push(`\`${from}\` → \`${to}\``);
+          }
+
+          lines.push(`Graduated role: \`${result.graduatedRoleName}\` (${result.graduatedExists ? 'already exists' : 'will be created'})`);
+        } else {
+          lines.push(`**${result.moved}** member(s) advanced`);
+        }
+
+        embed.addFields({ name: result.guild, value: lines.join('\n').slice(0, 1020) });
+      }
+
+      await interaction.editReply({ embeds: [embed.slice(0, 25)] });
+      return;
+    }
 
     if (subcommand === 'setup') {
       const channel = interaction.options.getChannel('channel');
@@ -135,6 +215,9 @@ module.exports = {
 
       const teamPrefix = interaction.options.getString('team-prefix');
       if (teamPrefix) patch.teamRolePrefix = teamPrefix.trim();
+
+      const graduatedRole = interaction.options.getString('graduated-role');
+      if (graduatedRole) patch.graduatedRoleName = graduatedRole.trim();
 
       const nickname = interaction.options.getBoolean('nickname');
       if (nickname !== null) patch.setNickname = nickname;
@@ -177,11 +260,16 @@ module.exports = {
               [
                 `Prompt posted in <#${channel.id}> (message ${sent.id}).`,
                 `Verified role: \`${config.verifiedRoleName}\``,
-                config.giveGradeRole ? `Grade roles: \`${config.gradeRolePrefix} <grade>\`` : 'Grade roles: off',
-                config.giveTeamRole ? `Team roles: \`${config.teamRolePrefix} <team>\`` : 'Team roles: off',
+                config.giveGradeRole ? `Grade roles: \`${config.gradeRolePrefix} 8-${MAX_GRADE}\`` : 'Grade roles: off',
+                config.giveGradeRole
+                  ? `Grade ${MAX_GRADE} becomes \`${config.graduatedRoleName}\` on 1 September`
+                  : null,
+                config.giveTeamRole ? `Team roles: \`${config.teamRolePrefix} <a-z|SWARM>\`` : 'Team roles: off',
                 `Nicknames: ${config.setNickname ? 'on' : 'off'}`,
                 ...warnings,
-              ].join('\n')
+              ]
+                .filter(Boolean)
+                .join('\n')
             )
             .setFooter({ text: `Use /verify post to post it again · ${client.user.tag}` }),
         ],
@@ -225,6 +313,12 @@ module.exports = {
     const total = verifications.count(guild.id);
     const recent = verifications.recent(guild.id, 10);
     const channel = config.verifyChannelId ? `<#${config.verifyChannelId}>` : 'Not set';
+    const rolloverRan = config.lastRollover ? `<t:${Math.floor(config.lastRollover / 1000)}:f>` : 'Never';
+    const discovered = discoverGradeRoles(guild);
+    const discoveredText = gradeSummary(discovered) || 'None found yet';
+    const verifiedRoleFound = guild.roles.cache.some(
+      (role) => role.name.toLowerCase() === String(config.verifiedRoleName).toLowerCase()
+    );
 
     const embed = new EmbedBuilder()
       .setColor('#eee657')
@@ -236,13 +330,29 @@ module.exports = {
         { name: 'Verified role', value: `\`${config.verifiedRoleName}\``, inline: true },
         {
           name: 'Grade roles',
-          value: config.giveGradeRole ? `\`${config.gradeRolePrefix} <grade>\`` : 'Off',
+          value: config.giveGradeRole ? `\`${config.gradeRolePrefix} 8-${MAX_GRADE}\`` : 'Off',
           inline: true,
         },
         {
           name: 'Team roles',
-          value: config.giveTeamRole ? `\`${config.teamRolePrefix} <team>\`` : 'Off',
+          value: config.giveTeamRole ? `\`${config.teamRolePrefix} <a-z|SWARM>\`` : 'Off',
           inline: true,
+        },
+        { name: 'Graduated role', value: `\`${config.graduatedRoleName}\``, inline: true },
+        {
+          name: 'Verified role found',
+          value: verifiedRoleFound ? 'Yes' : 'No - will be created on first use',
+          inline: true,
+        },
+        {
+          name: 'Existing grade roles',
+          value: truncate(discoveredText, 1020),
+          inline: false,
+        },
+        {
+          name: 'Last rollover',
+          value: `${rolloverRan} · next 1 Sep · use /verify rollover preview`,
+          inline: false,
         },
         {
           name: 'Recent submissions',
@@ -250,8 +360,8 @@ module.exports = {
             ? recent
                 .map(
                   (row) =>
-                    `<@${row.user_id}> — ${row.full_name} (#${row.student_number}, grade ${row.grade}${
-                      row.team_id ? `, team ${row.team_id}` : ''
+                    `<@${row.user_id}> — ${row.full_name} (#${row.student_number}, grade ${row.grade ?? '—'}${
+                      row.team_letter ? `, team ${row.team_letter}` : ''
                     })`
                 )
                 .join('\n')
