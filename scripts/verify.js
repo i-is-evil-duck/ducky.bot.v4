@@ -416,6 +416,47 @@ record('rollover counts offline members because it lists them over REST', () => 
   assert.strictEqual(counts.get(9), 0, 'the member in both should count once, at the highest grade');
 });
 
+record('members are read from the gateway fetch, not the REST list', async () => {
+  const { fetchMembers, toRows } = require('../lib/rollover');
+
+  const member = (id, roleIds) => ({
+    id,
+    user: { id, username: `user${id}`, tag: `user#${id}` },
+    roles: { cache: new Map(roleIds.map((roleId) => [roleId, {}])) },
+  });
+
+  const all = [member('a', ['r11']), member('b', ['r9']), member('c', [])];
+
+  const guild = {
+    name: 'test',
+    members: {
+      fetch: async () => {
+        throw new Error('Members didnt arrive in time');
+      },
+      cache: new Collection([['only', member('only', ['r11'])]]),
+    },
+  };
+
+  const fallback = await fetchMembers(guild);
+  assert.strictEqual(fallback.length, 1, 'a failed fetch should fall back to the cache');
+
+  const working = {
+    name: 'test',
+    members: {
+      fetch: async () => new Collection(all.map((m) => [m.id, m])),
+      cache: new Collection(),
+    },
+  };
+
+  const fetched = await fetchMembers(working);
+  assert.strictEqual(fetched.length, 3, 'the gateway fetch should return every member');
+
+  const rows = toRows(fetched);
+  assert.strictEqual(rows.length, 3);
+  assert.deepStrictEqual(rows[0].roles, ['r11'], 'role ids should be captured');
+  assert.strictEqual(rows[0].user.username, 'usera');
+});
+
 record('rollover clears every stale grade role a member is holding', () => {
   const rows = [{ user: { id: 'm1', username: 'user' }, roles: ['r9', 'r11'] }];
 
