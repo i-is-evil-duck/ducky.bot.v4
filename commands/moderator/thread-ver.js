@@ -1,5 +1,6 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, ChannelType, OverwriteType } = require('discord.js');
 const fs = require('fs');
+const path = require('path');
 
 module.exports = {
   name: '-verify',
@@ -47,34 +48,47 @@ module.exports = {
       // Fetch the admin role
       const adminRole = message.guild.roles.cache.find(role => role.name.toLowerCase() === 'admin');
 
+      if (!adminRole) {
+        console.error('No "admin" role found; thread will be granted to the user only.');
+      }
+
+      const permissionOverwrites = [
+        { id: user.id, type: OverwriteType.Member },
+      ];
+
+      if (adminRole) {
+        permissionOverwrites.push({ id: adminRole.id, type: OverwriteType.Role });
+      }
+
+      const adminMention = adminRole ? ` <@&${adminRole.id}>` : '';
+
       // Create the thread and add permissions for the user and the admin role
       const thread = await message.channel.threads.create({
         name: `${user.username}'s thread`,
         autoArchiveDuration: 1440,
-        type: 12,
+        type: ChannelType.GuildPrivateThread,
         invitable: true,
-        permissionOverwrites: [
-          {
-            id: user.id,
-            type: 'member',
-            allow: ['VIEW_CHANNEL', 'SEND_MESSAGES'],
-          },
-          {
-            id: '1102715027372380321',  // Admin role ID
-            type: 'role',
-            allow: ['VIEW_CHANNEL', 'SEND_MESSAGES'],
-          },
-        ],
       });
 
+      // threads.create ignores permissionOverwrites, so apply them after creation
+      for (const overwrite of permissionOverwrites) {
+        await thread.permissionOverwrites.edit(
+          overwrite.id,
+          { ViewChannel: true, SendMessages: true },
+          { type: overwrite.type }
+        );
+      }
 
-      const welcomeMessage = `Welcome <@${user.id}> ||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​|| _ _ _ _ _ _ <@&1102715027372380321>`;
+
+      const welcomeMessage = `Welcome <@${user.id}> ||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​|| _ _ _ _ _ _${adminMention}`;
 
       await thread.send(welcomeMessage);
       await thread.send({ embeds: [threadEmbed] });
     });
 
-    fs.appendFile('./programs/verify/list.txt', `${msg.id}\n`, (err) => {
+    const verifyDir = path.join(__dirname, '..', '..', 'data', 'verify');
+    fs.mkdirSync(verifyDir, { recursive: true });
+    fs.appendFile(path.join(verifyDir, 'list.txt'), `${msg.id}\n`, (err) => {
       if (err) {
         console.error(err);
       }
