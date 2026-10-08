@@ -37,11 +37,13 @@ require('./handlers/slashcommands')(client);
 require('./handlers/components')(client);
 
 const { start } = require('./lib/scheduler');
+const { warmMemberCache } = require('./lib/members');
 
 client.once(Events.ClientReady, (ready) => {
   console.log(`🤖 Logged in as ${ready.user.tag} (${ready.user.id})`);
   console.log(`📡 Watching ${ready.guilds.cache.size} guild(s)`);
   start(client);
+  warmMemberCache(client).catch((error) => console.error('Member cache warm failed:', error));
 });
 
 client.on(Events.GuildCreate, async (guild) => {

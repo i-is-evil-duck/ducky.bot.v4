@@ -416,8 +416,8 @@ record('rollover counts offline members because it lists them over REST', () => 
   assert.strictEqual(counts.get(9), 0, 'the member in both should count once, at the highest grade');
 });
 
-record('members are read from the gateway fetch, not the REST list', async () => {
-  const { fetchMembers, toRows } = require('../lib/rollover');
+record('members come from the cache, and the gateway fetch is bounded', async () => {
+  const { fetchMembers, MEMBER_FETCH_TIMEOUT } = require('../lib/rollover');
 
   const member = (id, roleIds) => ({
     id,
@@ -425,36 +425,82 @@ record('members are read from the gateway fetch, not the REST list', async () =>
     roles: { cache: new Map(roleIds.map((roleId) => [roleId, {}])) },
   });
 
-  const all = [member('a', ['r11']), member('b', ['r9']), member('c', [])];
+  let fetchCalls = 0;
 
-  const guild = {
+  const guildWith = (memberCount, cacheMembers, fetchImpl) => ({
     name: 'test',
+    memberCount,
     members: {
-      fetch: async () => {
-        throw new Error('Members didnt arrive in time');
+      cache: new Collection(cacheMembers.map((m) => [m.id, m])),
+      fetch: async (options) => {
+        fetchCalls += 1;
+        if (options?.time !== MEMBER_FETCH_TIMEOUT) {
+          throw new Error(`expected a bounded timeout, got ${options?.time}`);
+        }
+        return fetchImpl ? fetchImpl() : Promise.reject(new Error('Members didnt arrive in time'));
       },
-      cache: new Collection([['only', member('only', ['r11'])]]),
     },
-  };
+  });
 
-  const fallback = await fetchMembers(guild);
-  assert.strictEqual(fallback.length, 1, 'a failed fetch should fall back to the cache');
+  const cached = [member('a', ['r11']), member('b', ['r9'])];
+  const all = [...cached, member('c', [])];
 
-  const working = {
-    name: 'test',
+  fetchCalls = 0;
+  const complete = await fetchMembers(guildWith(2, cached, () => new Collection(all.map((m) => [m.id, m]))));
+  assert.strictEqual(complete.length, 2, 'a complete cache should be used as is');
+  assert.strictEqual(fetchCalls, 0, 'no gateway request should be made when the cache is complete');
+
+  fetchCalls = 0;
+  const incomplete = await fetchMembers(guildWith(3, cached, () => new Collection(all.map((m) => [m.id, m]))));
+  assert.strictEqual(incomplete.length, 3, 'an incomplete cache should trigger a bounded fetch');
+  assert.strictEqual(fetchCalls, 1, 'the gateway should be asked once');
+
+  fetchCalls = 0;
+  const fallback = await fetchMembers(guildWith(3, cached, null));
+  assert.strictEqual(fallback.length, 2, 'a failed fetch should fall back to the cache');
+
+  fetchCalls = 0;
+  const unknown = await fetchMembers(guildWith(null, cached, () => new Collection(all.map((m) => [m.id, m]))));
+  assert.strictEqual(unknown.length, 3, 'an unknown member count should fetch');
+});
+
+record('member cache warms only where it is short', async () => {
+  const { warmGuild, cacheIsComplete } = require('../lib/members');
+
+  const makeGuild = (name, memberCount, cachedCount, fetchImpl) => ({
+    name,
+    memberCount,
     members: {
-      fetch: async () => new Collection(all.map((m) => [m.id, m])),
-      cache: new Collection(),
+      cache: new Collection(
+        Array.from({ length: cachedCount }, (_, index) => [`m${index}`, { id: `m${index}` }])
+      ),
+      fetch: fetchImpl ?? (async () => new Collection()),
     },
-  };
+  });
 
-  const fetched = await fetchMembers(working);
-  assert.strictEqual(fetched.length, 3, 'the gateway fetch should return every member');
+  const complete = makeGuild('big', 10, 10);
+  assert.strictEqual(cacheIsComplete(complete), true, 'a full cache should look complete');
 
-  const rows = toRows(fetched);
-  assert.strictEqual(rows.length, 3);
-  assert.deepStrictEqual(rows[0].roles, ['r11'], 'role ids should be captured');
-  assert.strictEqual(rows[0].user.username, 'usera');
+  let fetched = 0;
+  const short = makeGuild('small', 4, 1, async () => {
+    fetched += 1;
+    return new Collection([['a', {}], ['b', {}], ['c', {}], ['d', {}]]);
+  });
+
+  const result = await warmGuild(short);
+  assert.strictEqual(result.skipped, false, 'a short cache should be warmed');
+  assert.strictEqual(fetched, 1, 'the gateway should be asked once');
+  assert.strictEqual(result.cached, 4);
+
+  const skipped = await warmGuild(complete);
+  assert.strictEqual(skipped.skipped, true, 'a complete cache should be left alone');
+
+  const broken = makeGuild('broken', 4, 1, async () => {
+    throw new Error('Members didnt arrive in time');
+  });
+  const failure = await warmGuild(broken);
+  assert.strictEqual(failure.error, 'Members didnt arrive in time', 'failures should be reported');
+  assert.strictEqual(failure.cached, 1, 'a failure should keep the members it already had');
 });
 
 record('rollover clears every stale grade role a member is holding', () => {
