@@ -184,10 +184,18 @@ record('grade and team letter are validated correctly', () => {
   assert.strictEqual(swarm.teamLetter, 'SWARM', 'SWARM not accepted');
   assert.strictEqual(swarm.grade, 8, 'lowest grade rejected');
 
-  const neither = submit({ full_name: 'Ada Lovelace', student_number: 'S12345', team_letter: '', grade: '' });
-  assert.deepStrictEqual(neither.errors, [], 'grade and team are optional');
+  const neither = submit({ full_name: 'Ada Lovelace', student_number: 'S12345', team_letter: '', grade: '10' });
+  assert.deepStrictEqual(neither.errors, [], 'team should still be optional');
   assert.strictEqual(neither.teamLetter, null, 'blank team should be null');
-  assert.strictEqual(neither.grade, null, 'blank grade should be null');
+
+  const blankGrade = submit({ full_name: 'Ada Lovelace', student_number: 'S12345', team_letter: 'a', grade: '' });
+  assert.ok(
+    blankGrade.errors.some((line) => line.includes('Grade is required')),
+    'blank grade must be rejected now that it is mandatory'
+  );
+
+  const whitespaceGrade = submit({ full_name: 'Ada Lovelace', student_number: 'S12345', team_letter: 'a', grade: '   ' });
+  assert.ok(whitespaceGrade.errors.length >= 1, 'whitespace-only grade must be rejected');
 
   for (const grade of ['7', '13', 'ten', '11.5', '0']) {
     const bad = submit({ full_name: 'Ada Lovelace', student_number: 'S12345', team_letter: '', grade });
@@ -277,21 +285,21 @@ record('verifications persist and are queryable', () => {
   assert.strictEqual(row.grade, '12', 'grade not stored');
 });
 
-record('a verification can be recorded without a grade or team', () => {
+record('a verification needs a grade but not a team', () => {
   verifications.add({
     guildId: 'g8',
     userId: 'u10',
-    fullName: 'No Grade',
+    fullName: 'No Team',
     studentNumber: 'S000',
     teamLetter: null,
-    grade: null,
+    grade: 9,
     nicknameSet: false,
-    rolesGranted: ['verified'],
+    rolesGranted: ['verified', 'Grade 9'],
   });
 
   const [row] = verifications.recent('g8', 1);
-  assert.strictEqual(row.grade, null, 'grade should be null');
-  assert.strictEqual(row.team_letter, null, 'team letter should be null');
+  assert.strictEqual(row.grade, '9', 'grade should be stored');
+  assert.strictEqual(row.team_letter, null, 'team letter should still be nullable');
 });
 
 record('grades are read out of existing role names in any style', () => {

@@ -41,10 +41,10 @@ function verificationModal() {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('grade')
-          .setLabel('Grade 8-12 (optional)')
+          .setLabel('Grade (8-12)')
           .setStyle(TextInputStyle.Short)
           .setMaxLength(2)
-          .setRequired(false)
+          .setRequired(true)
       )
     );
 }

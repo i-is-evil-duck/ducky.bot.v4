@@ -24,8 +24,8 @@ function promptEmbed(config) {
     .addFields(
       { name: 'Name', value: 'Your full name', inline: false },
       { name: 'Student number', value: 'Your student number', inline: false },
-      { name: 'Team letter', value: 'Optional — one letter (a-z) or SWARM', inline: false },
-      { name: 'Grade', value: 'Optional — 8 to 12', inline: false }
+      { name: 'Team letter', value: 'One letter (a-z) or SWARM', inline: false },
+      { name: 'Grade', value: '8 to 12', inline: false }
     );
 }
 
