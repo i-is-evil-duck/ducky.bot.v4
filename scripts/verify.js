@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const { PermissionsBitField } = require('discord.js');
+const { Collection, PermissionsBitField } = require('discord.js');
 
 const TEST_DIR = path.join(__dirname, '..', 'data', 'verify-test');
 fs.rmSync(TEST_DIR, { recursive: true, force: true });
@@ -23,12 +23,29 @@ const { isDue, mostRecentRollover, buildPlan } = require('../lib/rollover');
 const { parseGradeFromName, buildRoleName, discoverGradeRoles, gradeSummary } = require('../lib/grades');
 
 const checks = [];
+const pending = [];
+
 const record = (name, fn) => {
+  const entry = { name, ok: true, error: null };
+  checks.push(entry);
+
   try {
-    fn();
-    checks.push({ name, ok: true });
+    const result = fn();
+
+    if (result && typeof result.then === 'function') {
+      pending.push(
+        result.then(
+          () => {},
+          (error) => {
+            entry.ok = false;
+            entry.error = error.message;
+          }
+        )
+      );
+    }
   } catch (error) {
-    checks.push({ name, ok: false, error: error.message });
+    entry.ok = false;
+    entry.error = error.message;
   }
 };
 
@@ -385,20 +402,127 @@ record('rollover plan skips members who already graduated', () => {
   assert.strictEqual(skipped.length, 1, 'skip should be reported');
 });
 
-record('purge passes bulkDelete a Collection, not a Map', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'commands', 'moderator', 'purge.js'), 'utf8');
+const toCollection = (messages) => new Collection(new Map(messages.map((m) => [m.id, m])));
 
-  assert.ok(!/new Map\(/.test(source), 'purge must not build a plain Map; bulkDelete rejects it');
-  assert.ok(/new Collection\(/.test(source), 'purge should build a Collection');
-  assert.ok(!/reaction\.user/.test(source), 'purge should not rely on reaction.user');
+record('purge really deletes: all three subcommands pass a Collection to bulkDelete', () => {
+  const purge = require('../commands/moderator/purge');
+
+  const DAY = 24 * 60 * 60 * 1000;
+  const message = (id, ageInDays) => ({ id, createdTimestamp: Date.now() - ageInDays * DAY });
+
+  const recent = [message('m1', 1), message('m2', 2), message('m3', 3)];
+  const all = [...recent, message('old1', 20), message('old2', 30)];
+
+  const harness = (messages, subcommand, options) => {
+    const captured = {};
+    const available = toCollection(messages);
+
+    const channel = {
+      isTextBased: () => true,
+      messages: { fetch: async () => available },
+      bulkDelete(arg, filterOld) {
+        captured.isCollection = arg instanceof Collection;
+        captured.filterOld = filterOld;
+        captured.ids = arg && arg.size !== undefined ? [...arg.keys()] : null;
+        captured.undefinedKeys = captured.ids?.filter((id) => id === undefined || id === null).length ?? -1;
+        return Promise.resolve(toCollection(messages.filter((m) => captured.ids?.includes(m.id))));
+      },
+    };
+
+    const interaction = {
+      channel,
+      user: { tag: 'tester#0001' },
+      options: {
+        getSubcommand: () => subcommand,
+        getInteger: (name) => options.count,
+        getString: (name) => options[name],
+      },
+      reply: async (payload) => {
+        captured.reply = payload;
+      },
+    };
+
+    return { captured, interaction };
+  };
+
+  const run = async (messages, subcommand, options) => {
+    const { captured, interaction } = harness(messages, subcommand, options);
+    await purge.run({}, interaction, []);
+    return captured;
+  };
+
+  return Promise.all([
+    run(all, 'amount', { count: 3 }).then((captured) => {
+      assert.strictEqual(captured.isCollection, true, 'bulkDelete must receive a Collection');
+      assert.strictEqual(
+        captured.undefinedKeys,
+        0,
+        'collection keys must be real message ids; bulkDelete snowflake-decodes them'
+      );
+      assert.strictEqual(captured.ids.length, 3, `expected 3 recent messages, got ${captured.ids}`);
+      assert.ok(captured.ids.includes('old1') === false, 'messages older than 14 days must be skipped');
+      assert.strictEqual(captured.filterOld, true, 'filterOld should be enabled');
+    }),
+
+    run(all, 'until', { 'message-id': 'm2' }).then((captured) => {
+      assert.strictEqual(captured.isCollection, true, 'until must pass a Collection');
+      assert.strictEqual(captured.undefinedKeys, 0, 'until must not lose message ids');
+      assert.deepStrictEqual(
+        captured.ids,
+        ['m1'],
+        'until should delete only messages newer than m2 (m1), not older ones (m3)'
+      );
+    }),
+
+    run(all, 'between', { 'start-id': 'm1', 'end-id': 'm3' }).then((captured) => {
+      assert.strictEqual(captured.isCollection, true, 'between must pass a Collection');
+      assert.strictEqual(captured.undefinedKeys, 0, 'between must not lose message ids');
+      assert.deepStrictEqual(captured.ids, ['m2'], 'between should select only messages inside the range');
+    }),
+  ]);
 });
 
-const failed = checks.filter((check) => !check.ok);
+record('purge refuses unknown message ids instead of throwing', async () => {
+  const purge = require('../commands/moderator/purge');
 
-for (const check of checks) {
-  console.log(`${check.ok ? 'PASS' : 'FAIL'}  ${check.name}${check.ok ? '' : ` -> ${check.error}`}`);
-}
+  const available = toCollection([{ id: 'm1', createdTimestamp: Date.now() }]);
+  let replied = null;
+  let deleteCalled = false;
 
-console.log(`\n${checks.length - failed.length}/${checks.length} checks passed across ${commands.length} commands.`);
+  const interaction = {
+    channel: {
+      isTextBased: () => true,
+      messages: { fetch: async () => available },
+      bulkDelete: () => {
+        deleteCalled = true;
+        return Promise.resolve(new Collection());
+      },
+    },
+    user: { tag: 'tester#0001' },
+    options: {
+      getSubcommand: () => 'until',
+      getInteger: () => null,
+      getString: () => 'does-not-exist',
+    },
+    reply: async (payload) => {
+      replied = payload;
+    },
+  };
 
-process.exit(failed.length === 0 ? 0 : 1);
+  await purge.run({}, interaction, []);
+
+  assert.strictEqual(deleteCalled, false, 'must not delete anything');
+  assert.ok(replied?.content, 'should explain the problem to the user');
+});
+
+Promise.all(pending).then(() => {
+  const failed = checks.filter((check) => !check.ok);
+
+  for (const check of checks) {
+    console.log(`${check.ok ? 'PASS' : 'FAIL'}  ${check.name}${check.ok ? '' : ` -> ${check.error}`}`);
+  }
+
+  console.log(`\n${checks.length - failed.length}/${checks.length} checks passed across ${commands.length} commands.`);
+
+  process.exit(failed.length === 0 ? 0 : 1);
+});

@@ -56,16 +56,14 @@ module.exports = {
     }
 
     const cutoff = Date.now() - TWO_WEEKS;
-
     let toDelete = new Collection();
 
     try {
       if (subcommand === 'amount') {
         const count = interaction.options.getInteger('count');
         const messages = await channel.messages.fetch({ limit: count });
-        toDelete = new Collection(
-          [...messages.values()].filter((msg) => msg.createdTimestamp >= cutoff)
-        );
+
+        toDelete = messages.filter((msg) => msg.createdTimestamp >= cutoff);
       } else if (subcommand === 'until') {
         const id = interaction.options.getString('message-id').trim();
         const messages = await channel.messages.fetch({ limit: FETCH_LIMIT });
@@ -79,10 +77,8 @@ module.exports = {
           return;
         }
 
-        toDelete = new Collection(
-          [...messages.values()].filter(
-            (msg) => msg.createdTimestamp > untilMessage.createdTimestamp && msg.createdTimestamp >= cutoff
-          )
+        toDelete = messages.filter(
+          (msg) => msg.createdTimestamp > untilMessage.createdTimestamp && msg.createdTimestamp >= cutoff
         );
       } else {
         const startId = interaction.options.getString('start-id').trim();
@@ -103,10 +99,8 @@ module.exports = {
         const from = Math.min(startMessage.createdTimestamp, endMessage.createdTimestamp);
         const to = Math.max(startMessage.createdTimestamp, endMessage.createdTimestamp);
 
-        toDelete = new Collection(
-          [...messages.values()].filter(
-            (msg) => msg.createdTimestamp > from && msg.createdTimestamp < to && msg.createdTimestamp >= cutoff
-          )
+        toDelete = messages.filter(
+          (msg) => msg.createdTimestamp > from && msg.createdTimestamp < to && msg.createdTimestamp >= cutoff
         );
       }
     } catch (error) {
