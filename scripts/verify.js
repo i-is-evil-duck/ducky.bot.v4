@@ -385,6 +385,14 @@ record('rollover plan skips members who already graduated', () => {
   assert.strictEqual(skipped.length, 1, 'skip should be reported');
 });
 
+record('purge passes bulkDelete a Collection, not a Map', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'commands', 'moderator', 'purge.js'), 'utf8');
+
+  assert.ok(!/new Map\(/.test(source), 'purge must not build a plain Map; bulkDelete rejects it');
+  assert.ok(/new Collection\(/.test(source), 'purge should build a Collection');
+  assert.ok(!/reaction\.user/.test(source), 'purge should not rely on reaction.user');
+});
+
 const failed = checks.filter((check) => !check.ok);
 
 for (const check of checks) {

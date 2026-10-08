@@ -1,4 +1,4 @@
-const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
+const { Collection, EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 
 const TWO_WEEKS = 14 * 24 * 60 * 60 * 1000;
 const MAX_BULK = 100;
@@ -57,13 +57,13 @@ module.exports = {
 
     const cutoff = Date.now() - TWO_WEEKS;
 
-    let toDelete = new Map();
+    let toDelete = new Collection();
 
     try {
       if (subcommand === 'amount') {
         const count = interaction.options.getInteger('count');
         const messages = await channel.messages.fetch({ limit: count });
-        toDelete = new Map(
+        toDelete = new Collection(
           [...messages.values()].filter((msg) => msg.createdTimestamp >= cutoff)
         );
       } else if (subcommand === 'until') {
@@ -79,7 +79,7 @@ module.exports = {
           return;
         }
 
-        toDelete = new Map(
+        toDelete = new Collection(
           [...messages.values()].filter(
             (msg) => msg.createdTimestamp > untilMessage.createdTimestamp && msg.createdTimestamp >= cutoff
           )
@@ -103,7 +103,7 @@ module.exports = {
         const from = Math.min(startMessage.createdTimestamp, endMessage.createdTimestamp);
         const to = Math.max(startMessage.createdTimestamp, endMessage.createdTimestamp);
 
-        toDelete = new Map(
+        toDelete = new Collection(
           [...messages.values()].filter(
             (msg) => msg.createdTimestamp > from && msg.createdTimestamp < to && msg.createdTimestamp >= cutoff
           )

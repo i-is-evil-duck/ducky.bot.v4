@@ -64,18 +64,9 @@ async function handleVerifySubmit(client, interaction) {
     return;
   }
 
-  const lines = [
-    `Welcome, **${result.submission.fullName}** — you are verified.`,
-    `Student number: \`${result.submission.studentNumber}\``,
-    result.submission.grade !== null ? `Grade: \`${result.submission.grade}\`` : null,
-    result.submission.teamLetter ? `Team: \`${result.submission.teamLetter}\`` : null,
-    result.rolesGranted.length ? `Roles: ${result.rolesGranted.map((name) => `\`${name}\``).join(', ')}` : null,
-    result.nicknameSet ? 'Your nickname was updated.' : null,
-    result.createdRoles.length ? `New roles created: ${result.createdRoles.map((name) => `\`${name}\``).join(', ')}` : null,
-    ...result.failures,
-  ].filter(Boolean);
+  const notes = result.failures.length ? `\n\n${result.failures.join('\n')}` : '';
 
-  await interaction.reply({ content: lines.join('\n'), ephemeral: true });
+  await interaction.reply({ content: `✅${notes}`, ephemeral: true });
 }
 
 async function handleRoleMenu(client, interaction) {

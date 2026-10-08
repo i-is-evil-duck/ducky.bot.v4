@@ -65,9 +65,20 @@ module.exports = {
         .addChannelOption((opt) =>
           opt
             .setName('channel')
-            .setDescription('Where the prompt and submissions are posted')
+            .setDescription('Where the prompt is posted')
             .addChannelTypes(0, 5)
             .setRequired(true)
+        )
+        .addChannelOption((opt) =>
+          opt
+            .setName('log-channel')
+            .setDescription('Where "New verification" notifications go. Defaults to the prompt channel')
+            .addChannelTypes(0, 5)
+        )
+        .addBooleanOption((opt) =>
+          opt
+            .setName('log-submissions')
+            .setDescription('Post a summary whenever someone verifies')
         )
         .addStringOption((opt) =>
           opt
@@ -207,6 +218,12 @@ module.exports = {
 
       const patch = { verifyChannelId: channel.id };
 
+      const logChannel = interaction.options.getChannel('log-channel');
+      if (logChannel) patch.verificationLogChannelId = logChannel.id;
+
+      const logSubmissions = interaction.options.getBoolean('log-submissions');
+      if (logSubmissions !== null) patch.logSubmissions = logSubmissions;
+
       const verifiedRole = interaction.options.getString('verified-role');
       if (verifiedRole) patch.verifiedRoleName = verifiedRole.trim();
 
@@ -236,7 +253,16 @@ module.exports = {
       const warnings = [];
 
       if (config.setNickname && !canManageNicknames(guild)) {
-        warnings.push('I am missing the **Manage Nicknames** permission, so nicknames will not change.');
+        warnings.push(
+          '⚠️ I am missing the **Manage Nicknames** permission here, so nicknames will NOT change. Enable it for me in Server Settings → Roles.'
+        );
+      }
+
+      const logChannelId = config.verificationLogChannelId ?? config.verifyChannelId;
+      const logChannelMention = guild.channels.cache.get(logChannelId);
+
+      if (!logChannelMention?.isTextBased()) {
+        warnings.push('⚠️ The notification channel is not usable, so no "New verification" summaries will be posted.');
       }
 
       const sent = await channel.send({
@@ -259,6 +285,7 @@ module.exports = {
             .setDescription(
               [
                 `Prompt posted in <#${channel.id}> (message ${sent.id}).`,
+                `Notifications: ${config.logSubmissions ? `<#${logChannel}>` : 'off'}`,
                 `Verified role: \`${config.verifiedRoleName}\``,
                 config.giveGradeRole ? `Grade roles: \`${config.gradeRolePrefix} 8-${MAX_GRADE}\`` : 'Grade roles: off',
                 config.giveGradeRole
@@ -313,6 +340,12 @@ module.exports = {
     const total = verifications.count(guild.id);
     const recent = verifications.recent(guild.id, 10);
     const channel = config.verifyChannelId ? `<#${config.verifyChannelId}>` : 'Not set';
+    const logChannel = config.verificationLogChannelId ?? config.verifyChannelId;
+    const logChannelText = config.logSubmissions
+      ? logChannel
+        ? `<#${logChannel}>`
+        : 'Not set'
+      : 'Off';
     const rolloverRan = config.lastRollover ? `<t:${Math.floor(config.lastRollover / 1000)}:f>` : 'Never';
     const discovered = discoverGradeRoles(guild);
     const discoveredText = gradeSummary(discovered) || 'None found yet';
@@ -326,7 +359,13 @@ module.exports = {
       .addFields(
         { name: 'Total verified', value: String(total), inline: true },
         { name: 'Channel', value: channel, inline: true },
+        { name: 'Notifications', value: logChannelText, inline: true },
         { name: 'Nicknames', value: config.setNickname ? 'On' : 'Off', inline: true },
+        {
+          name: 'Nickname permission',
+          value: config.setNickname ? (canManageNicknames(guild) ? 'Granted' : '⚠️ Missing') : 'Not needed',
+          inline: true,
+        },
         { name: 'Verified role', value: `\`${config.verifiedRoleName}\``, inline: true },
         {
           name: 'Grade roles',
