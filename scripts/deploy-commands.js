@@ -49,6 +49,7 @@ async function discoverGuilds() {
   }
 
   console.log('\nDone.');
+  process.exit(0);
 })().catch((error) => {
   console.error('Command deployment failed:', error);
   process.exit(1);

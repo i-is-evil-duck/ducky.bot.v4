@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, Partials, Collection } = require('discord.js');
+const { Client, Events, GatewayIntentBits, Partials, Collection } = require('discord.js');
 
 const config = require('./config.json');
 
@@ -41,13 +41,13 @@ require('./handlers/components')(client);
 
 const { start } = require('./lib/scheduler');
 
-client.once('clientReady', (ready) => {
+client.once(Events.ClientReady, (ready) => {
   console.log(`🤖 Logged in as ${ready.user.tag} (${ready.user.id})`);
   console.log(`📡 Watching ${ready.guilds.cache.size} guild(s)`);
   start(client);
 });
 
-client.on('guildCreate', async (guild) => {
+client.on(Events.GuildCreate, async (guild) => {
   try {
     const { deployGuild } = require('./lib/deploy');
     await deployGuild(client.rest, client.user.id, guild.id);
