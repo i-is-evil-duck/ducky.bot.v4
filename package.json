@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "deploy": "node scripts/deploy-commands.js",
+    "reset": "node scripts/reset-db.js",
     "test": "node scripts/verify.js"
   },
   "keywords": [
