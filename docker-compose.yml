@@ -1,8 +1,15 @@
 services:
   ducky.bot.v1:
+    build: .
     image: ducky.bot.v1
     container_name: ducky.bot.v1
+    env_file:
+      - .env
     environment:
-      - TOKEN=${TOKEN}
-      - TRYLEAP_API_TOKEN=${TRYLEAP_API_TOKEN}
+      - DATA_DIR=/app/data
+    volumes:
+      - ducky-data:/app/data
     restart: always
+
+volumes:
+  ducky-data:

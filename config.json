@@ -1,3 +1,16 @@
 {
-	"prefix": "/"
+  "prefix": "/",
+  "devGuildId": "",
+  "guildIds": [],
+  "adminRoleName": "admin",
+  "modLogChannelId": "",
+  "embedColor": "#eee657",
+  "defaultCooldown": 3000,
+  "categoryNames": {
+    "moderator": "Moderation",
+    "utils": "Utility",
+    "text-tools": "Text Tools",
+    "programs": "Programs",
+    "fixing": "Fun"
+  }
 }

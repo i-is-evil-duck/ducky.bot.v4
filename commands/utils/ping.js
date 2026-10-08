@@ -1,17 +1,28 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 
 module.exports = {
-	name: 'ping',
-	description: "Check bot's ping",
-	cooldown: 3000,
-	run: async (client, message, args) => {
-		const embed = new EmbedBuilder()
-		.setTitle('Pinging...')
-		.setDescription(`Pong! **${client.ws.ping} ms**`)
-		.setColor('#eee657')
-		.setTimestamp()
-		.setFooter({ text: client.user.tag })
+  data: new SlashCommandBuilder().setName('ping').setDescription("Check the bot's latency"),
 
-		message.reply({ embeds: [embed] })
-	}
+  cooldown: 3000,
+
+  async run(client, interaction) {
+    const sent = await interaction.reply({
+      content: 'Measuring...',
+      fetchReply: true,
+    });
+
+    const roundTrip = Date.now() - sent.createdTimestamp;
+
+    const embed = new EmbedBuilder()
+      .setColor('#eee657')
+      .setTitle('Pong!')
+      .addFields(
+        { name: 'Round trip', value: `${roundTrip} ms`, inline: true },
+        { name: 'Websocket heartbeat', value: `${Math.round(client.ws.ping)} ms`, inline: true }
+      )
+      .setFooter({ text: client.user.tag })
+      .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed] });
+  },
 };

@@ -1,17 +1,36 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 
 module.exports = {
-    name: 'dice',
-    description: 'Rolls a dice and returns a random number between 1 and 6',
-    cooldown: 3000,
-    run: async (client, message, args) => {
-        const randomNum = Math.floor(Math.random() * 6) + 1; // Generates a random number between 1 and 6
-        const embed = new EmbedBuilder()
-            .setTitle('Dice Roll')
-            .setDescription(`You rolled a ${randomNum}! 🎲`)
-            .setColor('#eee657')
-            .setTimestamp()
-            .setFooter({ text: client.user.tag });
-        message.reply({ embeds: [embed] });
-    },
+  data: new SlashCommandBuilder()
+    .setName('dice')
+    .setDescription('Rolls dice')
+    .addIntegerOption((opt) =>
+      opt
+        .setName('sides')
+        .setDescription('How many sides? Defaults to 6')
+        .setMinValue(2)
+        .setMaxValue(1000)
+    )
+    .addIntegerOption((opt) =>
+      opt.setName('count').setDescription('How many dice? Defaults to 1').setMinValue(1).setMaxValue(25)
+    ),
+
+  cooldown: 3000,
+
+  async run(client, interaction) {
+    const sides = interaction.options.getInteger('sides') ?? 6;
+    const count = interaction.options.getInteger('count') ?? 1;
+
+    const rolls = Array.from({ length: count }, () => Math.floor(Math.random() * sides) + 1);
+    const total = rolls.reduce((sum, roll) => sum + roll, 0);
+
+    const embed = new EmbedBuilder()
+      .setColor('#eee657')
+      .setTitle('🎲 Dice roll')
+      .setDescription(rolls.join(', '))
+      .addFields({ name: 'Total', value: String(total), inline: true })
+      .setFooter({ text: `${count}d${sides} · ${client.user.tag}` });
+
+    await interaction.reply({ embeds: [embed] });
+  },
 };

@@ -1,72 +1,68 @@
-const { WebhookClient } = require('discord.js');
+const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
+
+const MAX_SENDS = 25;
 
 module.exports = {
-  name: 'count',
-  description: 'Creates multiple webhooks and sends a message a specified amount of times',
-  usage: '!count <number of messages>',
-  userPerms: ['Administrator'],
-	botPerms: ['Administrator'],
-  run: async (client, message, args) => {
-    // Get the number of messages to send from the command arguments
-    const count = parseInt(args[0]);
+  data: new SlashCommandBuilder()
+    .setName('count')
+    .setDescription('Counts up to a limit by spamming webhooks')
+    .addIntegerOption((opt) =>
+      opt
+        .setName('count')
+        .setDescription('How many messages to send')
+        .setMinValue(1)
+        .setMaxValue(MAX_SENDS)
+        .setRequired(true)
+    ),
 
-    // Check if the argument is a number
-    if (isNaN(count)) {
-      return message.reply('You need to provide a number!');
+  guildOnly: true,
+  userPerms: ['ManageWebhooks'],
+  botPerms: ['ManageWebhooks'],
+  cooldown: 30000,
+
+  async run(client, interaction) {
+    const count = interaction.options.getInteger('count');
+
+    if (!interaction.channel.isTextBased()) {
+      await interaction.reply({ content: 'This channel cannot receive webhooks.', ephemeral: true });
+      return;
     }
 
-    // Get the channel where the message was sent
-    const channel = message.channel;
+    const existing = await interaction.channel.fetchWebhooks().catch(() => null);
+    const reused = existing?.find((entry) => entry.name === 'count');
+    const hook = reused ?? (await interaction.channel.createWebhook({ name: 'count' }).catch(() => null));
 
-    // Limit the number of webhooks created to 10
-    const maxWebhooks = 10;
-    const numWebhooks = Math.min(count, maxWebhooks);
+    if (!hook) {
+      await interaction.reply({ content: 'I could not create a webhook here.', ephemeral: true });
+      return;
+    }
 
-    // Create an array to hold the webhooks
-    const webhooks = [];
+    const created = !reused;
 
-    // Loop to create multiple webhooks
-    for (let i = 0; i < numWebhooks; i++) {
-      // Check if a webhook with the name 'count' already exists
-      const existingWebhooks = await channel.fetchWebhooks();
-      let webhook = existingWebhooks.find(webhook => webhook.name === `count-${i}`);
-
-      // If a webhook with the name 'count' doesn't exist, create one
-      if (!webhook) {
-        const newWebhook = await channel.createWebhook({
-          name: `count-${i}`,
+    try {
+      for (let i = 1; i <= count; i++) {
+        await hook.send({
+          username: interaction.user.username,
+          avatarURL: interaction.user.displayAvatarURL(),
+          content: String(i),
         });
-        webhook = newWebhook;
       }
-
-      // Add the webhook to the array
-      webhooks.push(webhook);
+    } catch (error) {
+      console.error('Count command failed:', error);
+      await interaction
+        .reply({ content: `Stopped at ${i - 1}: ${error.message}`, ephemeral: true })
+        .catch(() => {});
+      return;
+    } finally {
+      if (created) await hook.delete().catch(() => {});
     }
 
-    // Loop through and send the messages
-    let webhookIndex = 0;
-    for (let i = 1; i <= count; i++) {
-      // Create the message content
-      const messageContent = `${i}`;
+    const embed = new EmbedBuilder()
+      .setColor('#eee657')
+      .setTitle(`Counted to ${count}`)
+      .setFooter({ text: interaction.user.tag })
+      .setTimestamp();
 
-      // Get the current webhook to use
-      const webhook = webhooks[webhookIndex];
-
-      // Create a new message to send via the webhook
-      const webhookMessage = {
-        username: message.author.username,
-        avatarURL: message.author.avatarURL(),
-        content: messageContent
-      };
-
-      // Send the message via the webhook
-      await webhook.send(webhookMessage);
-
-      // Increment the webhook index to switch to the next one for the next message
-      webhookIndex = (webhookIndex + 1) % numWebhooks;
-    }
-
-    // Delete the user's original message
-    await message.delete();
-  }
+    await interaction.reply({ embeds: [embed], ephemeral: true });
+  },
 };

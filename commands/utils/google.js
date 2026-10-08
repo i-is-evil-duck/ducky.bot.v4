@@ -1,41 +1,55 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
+
 const googleIt = require('google-it');
 
-module.exports = {
-  name: 'search',
-  description: 'Searches Google. Use flag with number to specify number of results',
-  cooldown: 3000,
-  run: async (client, message, args) => {
-    // Extract the number of search results to retrieve and the query from the message arguments
-    let numResults = 2;
-    let query = args.join(' ');
+const { truncate } = require('../../lib/helpers');
 
-    const match = query.match(/-(\d+)\s+(.+)/);
-    if (match) {
-      numResults = parseInt(match[1]) + 1;
-      query = match[2];
+module.exports = {
+  data: new SlashCommandBuilder()
+    .setName('search')
+    .setDescription('Searches Google')
+    .addStringOption((opt) => opt.setName('query').setDescription('What to search for').setRequired(true))
+    .addIntegerOption((opt) =>
+      opt
+        .setName('results')
+        .setDescription('How many results to show')
+        .setMinValue(1)
+        .setMaxValue(10)
+    ),
+
+  cooldown: 5000,
+
+  async run(client, interaction) {
+    const query = interaction.options.getString('query');
+    const limit = interaction.options.getInteger('results') ?? 3;
+
+    let results;
+
+    try {
+      results = await googleIt({ query, limit });
+    } catch (error) {
+      await interaction.reply({ content: `Google search failed: ${error.message}`, ephemeral: true });
+      return;
     }
 
-    // Limit the number of search results to a maximum of 25
-    numResults = Math.min(numResults, 25);
+    if (!results.length) {
+      await interaction.reply({ content: `No results for \`${query}\`.`, ephemeral: true });
+      return;
+    }
 
-    // Search Google for the query and retrieve the specified number of results
-    const results = await googleIt({ query: query, limit: numResults });
-
-    // Create a new EmbedBuilder object and set its properties
     const embed = new EmbedBuilder()
-      .setTitle(`Search Results for "${query}"`)
       .setColor('#eee657')
-      .setTimestamp()
-      .setFooter({ text: client.user.tag });
+      .setTitle(truncate(`Results for "${query}"`, 256))
+      .setFooter({ text: client.user.tag })
+      .setTimestamp();
 
-    // Add a field for each search result to the embed
-    results.forEach((result) => {
-      const content = `[${result.snippet.substr(0, 100)}...](${result.link})`;
-      embed.addFields({ name: result.title, value: content });
-    });
+    for (const result of results) {
+      embed.addFields({
+        name: truncate(result.title, 256),
+        value: truncate(result.snippet, 200) + `\n[Link](${result.link})`,
+      });
+    }
 
-    // Send the embed with the search results
-    message.reply({ embeds: [embed] });
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   },
 };

@@ -1,25 +1,23 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 
 module.exports = {
-    name: 'avatar',
-    description: 'Displays the user\'s avatar',
-    cooldown: 3000,
-    run: async (client, message, args) => {
-        // Get the user from the command argument or the message author
-        const user = message.mentions.users.first() || client.users.cache.get(args[0]) || message.author;
+  data: new SlashCommandBuilder()
+    .setName('avatar')
+    .setDescription("Displays a user's avatar")
+    .addUserOption((opt) => opt.setName('user').setDescription('Whose avatar? Defaults to you')),
 
-        // Get the user's avatar URL
-        const avatarURL = user.displayAvatarURL({ format: 'png', dynamic: true, size: 1024 });
+  cooldown: 3000,
 
-        // Create a new embed message with the user's avatar
-        const embed = new EmbedBuilder()
-            .setTitle(`${user.username}'s Avatar`)
-            .setImage(avatarURL)
-            .setColor('#eee657')
-            .setTimestamp()
-            .setFooter({ text: client.user.tag });
+  async run(client, interaction) {
+    const user = interaction.options.getUser('user') ?? interaction.user;
 
-        // Send the embed message as a reply to the user's message
-        message.reply({ embeds: [embed] });
-    }
+    const embed = new EmbedBuilder()
+      .setColor('#eee657')
+      .setTitle(`${user.username}'s avatar`)
+      .setImage(user.displayAvatarURL({ size: 1024 }))
+      .setFooter({ text: client.user.tag })
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [embed], ephemeral: true });
+  },
 };

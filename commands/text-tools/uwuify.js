@@ -1,50 +1,44 @@
-const { WebhookClient } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
+
 const owoify = require('owoify-js').default;
 const stutterify = require('stutterify');
 
+const MAX_LENGTH = 1800;
+
 module.exports = {
-  name: 'uwu',
-  description: 'Creates a new webhook',
-  run: async (client, message, args) => {
-    const channel = message.channel;
+  data: new SlashCommandBuilder()
+    .setName('uwu')
+    .setDescription('Uwufies your text')
+    .addStringOption((opt) => opt.setName('text').setDescription('What to uwuify').setRequired(true)),
 
-    // Check if a webhook with the name 'UWU' already exists
-    const existingWebhooks = await channel.fetchWebhooks();
-    let webhook = existingWebhooks.find(webhook => webhook.name === 'UWU');
+  guildOnly: true,
+  userPerms: ['ManageWebhooks'],
+  botPerms: ['ManageWebhooks'],
+  cooldown: 5000,
 
-    // If a webhook with the name 'UWU' doesn't exist, create one
-    if (!webhook) {
-      const newWebhook = await channel.createWebhook({
-        name: 'UWU',
+  async run(client, interaction) {
+    const text = interaction.options.getString('text');
+
+    const existing = await interaction.channel.fetchWebhooks().catch(() => null);
+    const webhook = existing?.find((entry) => entry.name === 'UWU') ?? null;
+
+    const hook =
+      webhook ?? (await interaction.channel.createWebhook({ name: 'UWU' }).catch(() => null));
+
+    if (!hook) {
+      await interaction.reply({
+        content: 'I could not create a webhook in this channel.',
+        ephemeral: true,
       });
-      webhook = newWebhook;
+      return;
     }
 
-    // Get the user's message
-    const userMessage = args.join(' ');
+    await hook.send({
+      username: interaction.user.username,
+      avatarURL: interaction.user.displayAvatarURL(),
+      content: stutterify(owoify(text)).slice(0, MAX_LENGTH),
+    });
 
-    // If the user's message is blank, send an error message
-    if (!userMessage) {
-      return message.reply('You need to provide a message!');
-    }
-
-    // Convert the user's message to "uwu" using the owoify package
-    const uwuMessage = owoify(userMessage);
-
-    // Add stutter to the "uwu" message using the stutterify package
-    const stutterMessage = stutterify(uwuMessage);
-
-    // Create a new message to send via the webhook
-    const webhookMessage = {
-      username: message.author.username,
-      avatarURL: message.author.avatarURL(),
-      content: stutterMessage
-    };
-
-    // Delete the user's original message
-    await message.delete();
-
-    // Send the message via the webhook
-    await webhook.send(webhookMessage);
-  }
+    await interaction.reply({ content: 'Uwufied!', ephemeral: true });
+  },
 };

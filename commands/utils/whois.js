@@ -1,69 +1,71 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
+
+const { truncate } = require('../../lib/helpers');
 
 module.exports = {
-  name: 'whois',
-  description: 'Shows information about a user',
+  data: new SlashCommandBuilder()
+    .setName('whois')
+    .setDescription('Shows information about a member')
+    .addUserOption((opt) => opt.setName('user').setDescription('Who? Defaults to you')),
+
+  guildOnly: true,
   cooldown: 3000,
-  run: async (client, message, args) => {
-    let mentionedMember;
 
-    if (message.mentions.members.size > 0) {
-      mentionedMember = message.mentions.members.first();
-    } else {
-      mentionedMember = message.member;
+  async run(client, interaction) {
+    const user = interaction.options.getUser('user') ?? interaction.user;
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+
+    if (!member) {
+      await interaction.reply({
+        content: `${user.tag} is not a member of this server.`,
+        ephemeral: true,
+      });
+      return;
     }
 
-    const username = mentionedMember.user.username;
-    const avatar = mentionedMember.user.avatarURL({ format: 'png', dynamic: true, size: 2048 });
-    const nickname = mentionedMember.nickname || 'None';
-    const status = mentionedMember.presence.status || 'Offline';
+    const roles = [...member.roles.cache.values()]
+      .filter((role) => role.id !== interaction.guild.id)
+      .sort((a, b) => b.position - a.position)
+      .map((role) => role.toString());
 
-    const memberEmbed = new EmbedBuilder()
+    const status = member.presence?.status ?? 'offline';
+    const joinedAt = member.joinedAt;
+
+    const embed = new EmbedBuilder()
       .setColor('#eee657')
-      .setTitle(`${username}`)
-      .setThumbnail(avatar)
-      .setTimestamp()
-      .setFooter({ text: client.user.tag });
-
-    const userIdField = { name: 'User ID', value: mentionedMember.user.id, inline: true };
-const rolesField = {
-  name: 'Roles',
-  value: mentionedMember.roles.cache.map((role) => role.name.startsWith('@') ? role.name : `@${role.name}`).join(', ') || 'None',
-  inline: true,
-};
-
-    const nicknameField = { name: 'Nickname', value: nickname, inline: true };
-    const statusField = { name: 'Status', value: status, inline: true };
-    const accountAge = Math.round((new Date() - mentionedMember.user.createdAt) / (1000 * 60 * 60 * 24));
-    const joinedDate = mentionedMember.joinedAt.toDateString();
-    const serverAge = Math.round((new Date() - mentionedMember.joinedAt) / (1000 * 60 * 60 * 24));
-
-    const ageField = { name: 'Account Age', value: `${accountAge} days old`, inline: true };
-    const joinedField = { name: 'Joined Server', value: `${serverAge} days ago (${joinedDate})`, inline: true };
-
-    memberEmbed.addFields(userIdField, rolesField, statusField, joinedField, ageField, nicknameField);
-
-    // Check for -perms flag
-    if (args.includes('-perms')) {
-      const mentionedMember = message.mentions.members.first() || message.member;
-
-      const memberPerms = mentionedMember.permissions.toArray();
-      const memberPermList = memberPerms.map((perm) => `\`${perm}\``).join(', ');
-
-      const memberEmbed = new EmbedBuilder()
-        .setColor('#eee657')
-        .setTitle(`Permissions for ${mentionedMember.user.tag}`)
-        .addFields({
-          name: 'Permissions',
-          value: memberPermList || 'None',
+      .setTitle(user.username)
+      .setThumbnail(user.displayAvatarURL({ size: 512 }))
+      .addFields(
+        { name: 'User ID', value: user.id, inline: true },
+        { name: 'Nickname', value: member.nickname ?? 'None', inline: true },
+        { name: 'Status', value: status, inline: true },
+        {
+          name: 'Account created',
+          value: `<t:${Math.floor(user.createdTimestamp / 1000)}:R>`,
           inline: true,
-        })
-        .setTimestamp()
-        .setFooter({ text: client.user.tag });
+        },
+        {
+          name: 'Joined server',
+          value: joinedAt ? `<t:${Math.floor(joinedAt.getTime() / 1000)}:R>` : 'Unknown',
+          inline: true,
+        },
+        { name: 'Roles', value: truncate(roles.join(', ') || 'None', 1020), inline: false },
+        {
+          name: 'Highest role',
+          value: member.roles.highest?.id ? `<@&${member.roles.highest.id}>` : 'None',
+          inline: true,
+        },
+        {
+          name: 'Timed out until',
+          value: member.communicationDisabledUntil
+            ? `<t:${Math.floor(member.communicationDisabledUntil.getTime() / 1000)}:R>`
+            : 'Not timed out',
+          inline: true,
+        }
+      )
+      .setFooter({ text: client.user.tag })
+      .setTimestamp();
 
-      return message.reply({ embeds: [memberEmbed] });
-    }
-
-    return message.reply({ embeds: [memberEmbed] });
+    await interaction.reply({ embeds: [embed], ephemeral: true });
   },
 };

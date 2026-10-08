@@ -1,41 +1,50 @@
-const { WebhookClient } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
+
+const MAX_INPUT = 380;
 
 module.exports = {
-  name: 'spoiled-msg',
-  description: 'sents text with spoilers',
-  run: async (client, message, args) => {
-    const channel = message.channel;
+  data: new SlashCommandBuilder()
+    .setName('spoiled-msg')
+    .setDescription('Spoils every character of your text')
+    .addStringOption((opt) => opt.setName('text').setDescription('What to spoil').setRequired(true)),
 
-    // Check if a webhook with the name 'spoiler-bot' already exists
-    const existingWebhooks = await channel.fetchWebhooks();
-    let webhook = existingWebhooks.find(webhook => webhook.name === 'spoiler-bot');
+  guildOnly: true,
+  userPerms: ['ManageWebhooks'],
+  botPerms: ['ManageWebhooks'],
+  cooldown: 5000,
 
-    // If a webhook with the name 'spoiler-bot' doesn't exist, create one
-    if (!webhook) {
-      const newWebhook = await channel.createWebhook({
-        name: 'spoiler-bot',
+  async run(client, interaction) {
+    const text = interaction.options.getString('text');
+
+    if (text.length > MAX_INPUT) {
+      await interaction.reply({
+        content: `Keep it under ${MAX_INPUT} characters — each character becomes 5 once spoiled (you sent ${text.length}).`,
+        ephemeral: true,
       });
-      webhook = newWebhook;
+      return;
     }
 
-    // Join the args array and split the resulting string into an array of individual characters
-    const messageText = args.join(' ');
-    const messageCharacters = messageText.split('');
+    const existing = await interaction.channel.fetchWebhooks().catch(() => null);
+    const webhook = existing?.find((entry) => entry.name === 'spoiler-bot') ?? null;
 
-    // Construct the content of the webhook message by wrapping each character in spoiler tags
-    const webhookMessageContent = messageCharacters.map(char => `||${char}||`).join('');
+    const hook =
+      webhook ??
+      (await interaction.channel.createWebhook({ name: 'spoiler-bot' }).catch(() => null));
 
-    // Create a new message to send via the webhook
-    const webhookMessage = {
-      username: message.author.username,
-      avatarURL: message.author.avatarURL(),
-      content: webhookMessageContent
-    };
+    if (!hook) {
+      await interaction.reply({
+        content: 'I could not create a webhook in this channel.',
+        ephemeral: true,
+      });
+      return;
+    }
 
-    // Delete the user's original message
-    await message.delete();
+    await hook.send({
+      username: interaction.user.username,
+      avatarURL: interaction.user.displayAvatarURL(),
+      content: [...text].map((char) => `||${char}||`).join(''),
+    });
 
-    // Send the message via the webhook
-    await webhook.send(webhookMessage);
-  }
+    await interaction.reply({ content: 'Spoiled!', ephemeral: true });
+  },
 };

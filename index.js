@@ -1,35 +1,53 @@
 require('dotenv').config();
+
 const { Client, GatewayIntentBits, Partials, Collection } = require('discord.js');
-const client = new Client({
-	intents: [
-		GatewayIntentBits.Guilds, 
-		GatewayIntentBits.GuildMessages, 
-		GatewayIntentBits.GuildPresences, 
-		GatewayIntentBits.GuildMessageReactions, 
-		GatewayIntentBits.DirectMessages,
-		GatewayIntentBits.GuildMembers,
-		GatewayIntentBits.MessageContent,
-	], 
-	partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember, Partials.Reaction]
-});
 
-const fs = require('fs');
 const config = require('./config.json');
-require('dotenv').config()
 
-/* ------------------ COLLECTIONS ------------------ */
-client.commands = new Collection()
-client.aliases = new Collection()
-client.events = new Collection();
-client.slashCommands = new Collection();
-client.prefix = config.prefix
+if (!process.env.TOKEN) {
+  console.error('TOKEN is not set. Copy .env.example to .env and fill it in.');
+  process.exit(1);
+}
 
-module.exports = client;
-
-
-fs.readdirSync('./handlers').forEach((handler) => {
-	require(`./handlers/${handler}`)(client)
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.MessageContent,
+  ],
+  partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember, Partials.Reaction],
 });
 
+client.commands = new Collection();
+client.slashCommands = new Collection();
+client.cooldowns = new Collection();
+client.prefix = config.prefix;
 
-client.login(process.env.TOKEN)
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error);
+});
+
+require('./handlers/slashcommands')(client);
+require('./handlers/components')(client);
+
+const { start } = require('./lib/scheduler');
+
+client.once('clientReady', (ready) => {
+  console.log(`🤖 Logged in as ${ready.user.tag} (${ready.user.id})`);
+  console.log(`📡 Watching ${ready.guilds.cache.size} guild(s)`);
+  start(client);
+});
+
+client.login(process.env.TOKEN).catch((error) => {
+  console.error('Login failed:', error.message);
+  process.exit(1);
+});

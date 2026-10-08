@@ -1,17 +1,41 @@
-const { ChannelType } = require('discord.js');
+const { ChannelType, SlashCommandBuilder } = require('discord.js');
 
 module.exports = {
-  name: 'vc',
-  description: 'Creates a new voice channel named "chess1" and sends the invite link.',
-  run: async (client, message, args) => {
-    // Create the voice channel
-     const channel = await message.guild.channels.create({name: 'chess1', type: ChannelType.GuildVoice});
+  data: new SlashCommandBuilder()
+    .setName('vc')
+    .setDescription('Creates a temporary voice channel and posts its invite')
+    .addStringOption((opt) =>
+      opt.setName('name').setDescription('Channel name').setMaxLength(80)
+    )
+    .addIntegerOption((opt) =>
+      opt
+        .setName('limit')
+        .setDescription('How many people can join')
+        .setMinValue(0)
+        .setMaxValue(99)
+    ),
 
-    // Generate the invite link
+  guildOnly: true,
+  userPerms: ['ManageChannels'],
+  botPerms: ['ManageChannels'],
+  cooldown: 10000,
+
+  async run(client, interaction) {
+    const name = interaction.options.getString('name') ?? `vc-${interaction.user.username}`;
+    const limit = interaction.options.getInteger('limit') ?? 0;
+
+    const channel = await interaction.guild.channels.create({
+      name,
+      type: ChannelType.GuildVoice,
+      userLimit: limit,
+      reason: `Created by ${interaction.user.tag}`,
+    });
+
     const invite = await channel.createInvite();
 
-    // Send the invite link to the text channel
-    message.channel.send(`Here's the invite link for the new voice channel: ${invite.url}`);
-  }
+    await interaction.reply({
+      content: `Created <#${channel.id}> — invite: ${invite.url}`,
+      ephemeral: true,
+    });
+  },
 };
-

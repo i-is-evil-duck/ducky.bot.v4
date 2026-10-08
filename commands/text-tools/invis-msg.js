@@ -1,51 +1,57 @@
-const { WebhookClient } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
+
+const { INVISIBLE_PATTERN, MAX_CONTENT } = require('../../lib/invisible');
 
 module.exports = {
-  name: 'invis-msg',
-  description: 'Creates invisible messages',
-  run: async (client, message, args) => {
-    const channel = message.channel;
+  data: new SlashCommandBuilder()
+    .setName('invis-msg')
+    .setDescription('Sends a message with hidden text appended')
+    .addStringOption((opt) =>
+      opt.setName('visible').setDescription('The visible part').setRequired(true)
+    )
+    .addStringOption((opt) =>
+      opt.setName('hidden').setDescription('The part nobody should see')
+    ),
 
-    // Check if a webhook with the name 'UWU' already exists
-    const existingWebhooks = await channel.fetchWebhooks();
-    let webhook = existingWebhooks.find(webhook => webhook.name === 'ligma');
+  guildOnly: true,
+  userPerms: ['ManageWebhooks'],
+  botPerms: ['ManageWebhooks'],
+  cooldown: 5000,
 
-    // If a webhook with the name 'UWU' doesn't exist, create one
-    if (!webhook) {
-      const newWebhook = await channel.createWebhook({
-        name: 'ligma',
+  async run(client, interaction) {
+    const visible = interaction.options.getString('visible');
+    const hidden = interaction.options.getString('hidden') ?? '';
+
+    const content = `${visible} ${INVISIBLE_PATTERN}${hidden}`;
+
+    if (content.length > MAX_CONTENT) {
+      await interaction.reply({
+        content: `That would be ${content.length} characters — Discord only allows ${MAX_CONTENT}.`,
+        ephemeral: true,
       });
-      webhook = newWebhook;
+      return;
     }
 
-    // Extract visible and invisible text from the args array
-    const regex = /^-(.+)\s+-{1,2}(.+)$/s;
-    const match = args.join(' ').match(regex);
+    const existing = await interaction.channel.fetchWebhooks().catch(() => null);
+    const webhook = existing?.find((entry) => entry.name === 'ligma') ?? null;
 
-    if (!match) {
-      return message.reply("Please provide both visible and invisible text in the format `-visible text -(invisible text)`")
-        .then(msg => setTimeout(() => msg.delete(), 5000))
-        .catch(console.error);
+    const hook =
+      webhook ?? (await interaction.channel.createWebhook({ name: 'ligma' }).catch(() => null));
+
+    if (!hook) {
+      await interaction.reply({
+        content: 'I could not create a webhook in this channel.',
+        ephemeral: true,
+      });
+      return;
     }
 
-    const visibleText = match[1];
-    const invisibleText = match[2];
+    await hook.send({
+      username: interaction.user.username,
+      avatarURL: interaction.user.displayAvatarURL(),
+      content,
+    });
 
-		const invisiblePattern = '||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​|| _ _ _ _ _ _';
-
-    // Create a new message to send via the webhook
-    const webhookMessage = {
-      username: message.author.username,
-      avatarURL: message.author.avatarURL(),
-      content: `${visibleText} ${invisiblePattern}${invisibleText}`
-    };
-
-    // Delete the user's original message
-    await message.delete();
-
-    // Send the message via the webhook
-    await webhook.send(webhookMessage);
-  }
+    await interaction.reply({ content: 'Sent!', ephemeral: true });
+  },
 };
-
-

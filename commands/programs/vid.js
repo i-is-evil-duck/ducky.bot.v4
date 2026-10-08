@@ -1,67 +1,100 @@
 const fs = require('fs');
-const { EmbedBuilder } = require('discord.js');
+const path = require('path');
 
-module.exports = {
-    name: 'vid',
-    description: 'Gets a video from a list',
-    usage: '`!vid <video name>` or `!vid -list`',
+const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 
+const { truncate } = require('../../lib/helpers');
+const { INVISIBLE_PATTERN } = require('../../lib/invisible');
 
+function loadList() {
+  const file = process.env.VIDEO_LIST
+    ? path.resolve(process.env.VIDEO_LIST)
+    : path.join(__dirname, '..', '..', 'assets', 'videos.txt');
 
-run: async (client, message, args) => {
-    const invis = '||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​|| _ _ _ _ _ _';
+  if (!fs.existsSync(file)) return { entries: [], file };
 
-    if (args.length === 0) {
-        const usageEmbed = new EmbedBuilder()
-            .setTitle('Usage')
-            .setDescription(module.exports.usage)
-            .setColor('#eee657');
+  const entries = fs
+    .readFileSync(file, 'utf-8')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, url] = line.split(';');
+      return { name: (name ?? '').trim(), url: (url ?? '').trim() };
+    })
+    .filter((entry) => entry.name && entry.url);
 
-        message.channel.send({ embeds: [usageEmbed] });
-        return;
-    }
-
-    if (args[0] === '-list') {
-        const list = fs.readFileSync('./programs/list.txt', 'utf-8').trim();
-        const videoList = list.split('\n').map((line, index) => `${index + 1}. ${line.split(';')[0]}`);
-
-        const embed = new EmbedBuilder()
-            .setTitle('List of Videos')
-            .setDescription(videoList.join('\n'))
-            .setColor('#eee657');
-
-        message.channel.send({ embeds: [embed] });
-        return;
-    }
-
-    const input = args.join(' ').toLowerCase();
-    const listLines = fs.readFileSync('./programs/list.txt', 'utf-8').split('\n');
-    const numberedVideoList = listLines.map((line, index) => ({ number: index + 1, name: line.split(';')[0], url: line.split(';')[1] }));
-
-    const selectedVideo = numberedVideoList.find(video => input === video.name.toLowerCase() || input === '-' + video.number.toString());
-
-    if (selectedVideo) {
-        const nameEmbed = new EmbedBuilder()
-            .setTitle(selectedVideo.name)
-            .setColor('#eee657');
-
-        message.channel.send({ embeds: [nameEmbed] });
-        message.channel.send(`${invis} ${selectedVideo.url}`);
-    } else {
-        const embed = new EmbedBuilder()
-            .setTitle('Video Not Found')
-            .setDescription(`Sorry, I couldn't find a video with the name "${args.join(' ')}".`)
-            .setColor('#eee657');
-
-        message.channel.send({ embeds: [embed] });
-
-        const usageEmbed = new EmbedBuilder()
-            .setTitle('Usage')
-            .setDescription(module.exports.usage)
-            .setColor('#eee657');
-
-        message.channel.send({ embeds: [usageEmbed] });
-    }
+  return { entries, file };
 }
 
+module.exports = {
+  data: new SlashCommandBuilder()
+    .setName('vid')
+    .setDescription('Looks up a video from the local list')
+    .addSubcommand((sub) => sub.setName('list').setDescription('Show every video'))
+    .addSubcommand((sub) =>
+      sub
+        .setName('play')
+        .setDescription('Send the link for one video')
+        .addStringOption((opt) =>
+          opt
+            .setName('video')
+            .setDescription('The video name')
+            .setRequired(true)
+            .setAutocomplete(true)
+        )
+    ),
+
+  cooldown: 5000,
+
+  async run(client, interaction, args) {
+    const { entries, file } = loadList();
+
+    if (entries.length === 0) {
+      await interaction.reply({
+        content: `No video list found at \`${file}\`. Add lines of \`name;url\`.`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (interaction.options.getSubcommand() === 'list') {
+      const embed = new EmbedBuilder()
+        .setColor('#eee657')
+        .setTitle(`Videos (${entries.length})`)
+        .setDescription(truncate(entries.map((entry, index) => `${index + 1}. ${entry.name}`).join('\n'), 4090))
+        .setFooter({ text: client.user.tag })
+        .setTimestamp();
+
+      await interaction.reply({ embeds: [embed], ephemeral: true });
+      return;
+    }
+
+    const query = interaction.options.getString('video');
+    const match = entries.find((entry) => entry.name.toLowerCase() === query.toLowerCase());
+
+    if (!match) {
+      await interaction.reply({ content: `No video called \`${query}\`. Try \`/vid list\`.`, ephemeral: true });
+      return;
+    }
+
+    await interaction.reply(`${INVISIBLE_PATTERN} ${match.url}`);
+  },
+
+  async autocomplete(interaction) {
+    if (interaction.options.getFocused(true).name !== 'video') {
+      await interaction.respond([]);
+      return;
+    }
+
+    const focused = interaction.options.getFocused().toLowerCase();
+    const { entries } = loadList();
+
+    await interaction.respond(
+      entries
+        .filter((entry) => entry.name.toLowerCase().includes(focused))
+        .slice(0, 25)
+        .map((entry) => ({ name: truncate(entry.name, 100), value: entry.name }))
+    );
+  },
 };

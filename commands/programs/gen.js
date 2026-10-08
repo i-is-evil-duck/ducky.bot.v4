@@ -1,87 +1,116 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
+
 require('dotenv').config();
 
-module.exports = {
-  name: 'gen',
-  description: '(!generate))',
-  cooldown: 3000,
-  async run(client, message, args) {
-    const prompt = args.join(' ');
-  const fetch = await import('node-fetch');
+const MODEL_ID = '8b1b897c-d66d-45a6-b8d7-8e32421d02cf';
+const BASE_URL = `https://api.tryleap.ai/api/v1/images/models/${MODEL_ID}`;
+const POLL_INTERVAL = 10_000;
+const MAX_POLLS = 18;
 
-    const url = 'https://api.tryleap.ai/api/v1/images/models/8b1b897c-d66d-45a6-b8d7-8e32421d02cf/inferences';
-    const options = {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-        authorization: `Bearer ${process.env.TRYLEAP_API_TOKEN}`
-      },
-      body: JSON.stringify({
-        prompt: prompt,
-        negativePrompt: 'asymmetric, watermarks',
-        steps: 50,
-        width: 512,
-        height: 512,
-        numberOfImages: 1,
-        promptStrength: 7,
-        seed: Math.floor(Math.random() * 10000000),
-        enhancePrompt: false,
-        upscaleBy: 'x1'
-      })
+module.exports = {
+  data: new SlashCommandBuilder()
+    .setName('gen')
+    .setDescription('Generates an image from a prompt')
+    .addStringOption((opt) =>
+      opt.setName('prompt').setDescription('What should the image show?').setRequired(true).setMaxLength(500)
+    ),
+
+  cooldown: 30000,
+
+  async run(client, interaction) {
+    const token = process.env.TRYLEAP_API_TOKEN;
+
+    if (!token) {
+      await interaction.reply({
+        content: 'Image generation is not configured on this bot (missing TRYLEAP_API_TOKEN).',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const prompt = interaction.options.getString('prompt');
+
+    const headers = {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
     };
 
-    const embed = new EmbedBuilder()
-      .setTitle('GENERATING IMAGE')
-      .setDescription('Please wait, this can take up to 2 minutes.')
+    const pending = new EmbedBuilder()
       .setColor('#eead57')
-      .setTimestamp()
+      .setTitle('Generating image')
+      .setDescription('This can take up to two minutes.')
       .setFooter({ text: client.user.tag });
 
-    const sentMessage = await message.channel.send({ embeds: [embed] });
+    await interaction.reply({ embeds: [pending] });
 
     try {
-      const response = await fetch(url, options);
-      const data = await response.json();
+      const response = await fetch(`${BASE_URL}/inferences`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          prompt,
+          negativePrompt: 'asymmetric, watermarks',
+          steps: 50,
+          width: 512,
+          height: 512,
+          numberOfImages: 1,
+          promptStrength: 7,
+          seed: Math.floor(Math.random() * 10_000_000),
+          enhancePrompt: false,
+          upscaleBy: 'x1',
+        }),
+      });
 
-      const id = data.id;
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
 
-      const checkImageUrl = `https://api.tryleap.ai/api/v1/images/models/8b1b897c-d66d-45a6-b8d7-8e32421d02cf/inferences/${id}`;
-      const checkImageOptions = {
-        method: 'GET',
-        headers: {
-          accept: 'application/json',
-          authorization: `Bearer ${process.env.TRYLEAP_API_TOKEN}`
+      const { id } = await response.json();
+
+      for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
+
+        const statusResponse = await fetch(`${BASE_URL}/inferences/${id}`, { headers });
+
+        if (!statusResponse.ok) {
+          throw new Error(`API returned ${statusResponse.status}`);
         }
-      };
 
-      const interval = setInterval(async () => {
-        try {
-          const checkImageResponse = await fetch(checkImageUrl, checkImageOptions);
-          const checkImageData = await checkImageResponse.json();
-          if (checkImageData.state === 'finished') {
-            const imageUrl = checkImageData.images[0].uri;
-            const generatedEmbed = new EmbedBuilder()
-              .setTitle('GENERATED IMAGE')
-              .setDescription(`[View Image](${imageUrl})`)
-              .setImage(imageUrl)
+        const data = await statusResponse.json();
 
-              .setColor('#eee657')
-              .setTimestamp()
-              .setFooter({ text: client.user.tag });
-
-            sentMessage.edit({ embeds: [generatedEmbed] });
-            clearInterval(interval);
-          }
-        } catch (error) {
-          console.error(error);
-          sentMessage.edit({ content: 'An error occurred while generating the image.' });
-          clearInterval(interval);
+        if (data.state === 'failed' || data.state === 'cancelled') {
+          throw new Error(`Generation ${data.state}`);
         }
-      }, 10000);
+
+        if (data.state === 'finished') {
+          const imageUrl = data.images?.[0]?.uri;
+
+          if (!imageUrl) throw new Error('API returned no image URL');
+
+          const finished = new EmbedBuilder()
+            .setColor('#eee657')
+            .setTitle('Generated image')
+            .setDescription(`Prompt: ${prompt}`)
+            .setImage(imageUrl)
+            .setFooter({ text: client.user.tag })
+            .setTimestamp();
+
+          await interaction.editReply({ embeds: [finished] });
+          return;
+        }
+      }
+
+      throw new Error('Generation timed out');
     } catch (error) {
-      console.error(error);
-      sentMessage.edit({ content: 'An error occurred while generating the image.' });
+      console.error('Image generation failed:', error);
+
+      const failed = new EmbedBuilder()
+        .setColor('#FF0000')
+        .setTitle('Generation failed')
+        .setDescription(error.message);
+
+      await interaction.editReply({ embeds: [failed] }).catch(() => {});
     }
-  }
+  },
 };

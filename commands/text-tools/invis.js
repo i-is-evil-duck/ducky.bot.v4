@@ -1,17 +1,23 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
+
+const { INVISIBLE_PATTERN } = require('../../lib/invisible');
+const { truncate } = require('../../lib/helpers');
 
 module.exports = {
-	name: 'invis',
-	description: "code to make messages invisible",
-	cooldown: 3000,
-	run: async (client, message, args) => {
-		const embed = new EmbedBuilder()
-		.setTitle('INVIS TEXT CODE')
-		.setDescription("```||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​||||​|| _ _ _ _ _ _```")
-		.setColor('#eee657')
-		.setTimestamp()
-		.setFooter({ text: client.user.tag })
+  data: new SlashCommandBuilder()
+    .setName('invis')
+    .setDescription('Shows the code used to make messages invisible'),
 
-		message.reply({ embeds: [embed] })
-	}
+  cooldown: 3000,
+
+  async run(client, interaction) {
+    const embed = new EmbedBuilder()
+      .setColor('#eee657')
+      .setTitle('Invisible text code')
+      .setDescription(truncate(`\`\`\`${INVISIBLE_PATTERN}\`\`\``, 4090))
+      .setFooter({ text: client.user.tag })
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [embed], ephemeral: true });
+  },
 };
