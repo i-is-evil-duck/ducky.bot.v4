@@ -374,43 +374,60 @@ record('grade roles are discovered across naming styles', () => {
 });
 
 record('rollover plan uses the highest grade when a member has two', () => {
-  const member = {
-    id: 'm1',
-    user: { tag: 'user#1' },
-    roles: { cache: new Map() },
-  };
+  const makeMember = (id, roleIds) => ({
+    id,
+    user: { tag: `user#${id}` },
+    roles: { cache: new Map(roleIds.map((roleId) => [roleId, {}])) },
+  });
 
-  const other = { id: 'm2', user: { tag: 'user#2' }, roles: { cache: new Map() } };
-
-  const nine = { grade: 9, role: { name: 'Grade 9', members: new Map([['m1', member], ['m2', other]]) } };
-  const ten = { grade: 10, role: { name: 'Grade 10', members: new Map([['m1', member]]) } };
+  const nine = { grade: 9, role: { id: 'r9', name: 'Grade 9' } };
+  const ten = { grade: 10, role: { id: 'r10', name: 'Grade 10' } };
   const discovered = new Map([
     [9, nine],
     [10, ten],
   ]);
 
-  const { plan } = buildPlan(discovered, null);
+  const members = [makeMember('m1', ['r9', 'r10']), makeMember('m2', ['r9']), makeMember('m3', ['some-other-role'])];
 
-  assert.strictEqual(plan.size, 2, 'both members should be planned once');
+  const { plan } = buildPlan(members, discovered, null);
+
+  assert.strictEqual(plan.size, 2, 'both members holding a grade role should be planned');
   assert.strictEqual(plan.get('m1').grade, 10, 'highest grade should win, avoiding a double bump');
   assert.strictEqual(plan.get('m1').from.name, 'Grade 10');
   assert.strictEqual(plan.get('m2').grade, 9);
 });
 
-record('rollover plan skips members who already graduated', () => {
-  const graduated = {
-    id: 'g-role',
-    name: 'The Graduated',
-    members: new Map(),
-  };
-
-  const member = { id: 'm1', user: { tag: 'user#1' }, roles: { cache: new Map([['g-role', {}]]) } };
+record('rollover counts members even when the role cache is empty', () => {
+  const { gradeCounts } = require('../lib/rollover');
 
   const discovered = new Map([
-    [12, { grade: 12, role: { name: 'Grade 12', members: new Map([['m1', member]]) } }],
+    [9, { grade: 9, role: { id: 'r9', name: 'Grade 9', members: new Map() } }],
+    [10, { grade: 10, role: { id: 'r10', name: 'Grade 10', members: new Map() } }],
   ]);
 
-  const { plan, skipped } = buildPlan(discovered, graduated);
+  const offlineMember = {
+    user: { tag: 'offline#1' },
+    roles: { cache: new Map([['r10', {}]]) },
+  };
+
+  const counts = gradeCounts(new Collection([[offlineMember.id ?? 'm1', offlineMember]]), discovered);
+
+  assert.strictEqual(counts.get(10), 1, 'an offline member must still be counted');
+  assert.strictEqual(counts.get(9), 0);
+});
+
+record('rollover plan skips members who already graduated', () => {
+  const member = {
+    id: 'm1',
+    user: { tag: 'user#1' },
+    roles: { cache: new Map([['r12', {}], ['grad', {}]]) },
+  };
+
+  const discovered = new Map([
+    [12, { grade: 12, role: { id: 'r12', name: 'Grade 12' } }],
+  ]);
+
+  const { plan, skipped } = buildPlan([member], discovered, 'grad');
 
   assert.strictEqual(plan.size, 0, 'graduated members must not move');
   assert.strictEqual(skipped.length, 1, 'skip should be reported');
