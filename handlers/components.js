@@ -66,7 +66,7 @@ async function handleVerifySubmit(client, interaction) {
 
   const notes = result.failures.length ? `\n\n${result.failures.join('\n')}` : '';
 
-  await interaction.reply({ content: `✅${notes}`, ephemeral: true });
+  await interaction.reply({ content: `✅ Verified${notes}`, ephemeral: true });
 }
 
 async function handleRoleMenu(client, interaction) {

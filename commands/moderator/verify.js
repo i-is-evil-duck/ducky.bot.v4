@@ -14,44 +14,19 @@ const { discoverGradeRoles, gradeSummary } = require('../../lib/grades');
 
 const BUTTON_ID = 'verify:start';
 
-const DEFAULT_INSTRUCTIONS =
-  'Press the button below, fill in your details, and you will be given your roles automatically.';
+const DEFAULT_INSTRUCTIONS = 'Please put in details';
 
 function promptEmbed(config) {
-  const gradeNote = config.giveGradeRole
-    ? `A \`${config.gradeRolePrefix} <8-${MAX_GRADE}>\` role (raised automatically every 1 September)`
-    : null;
-
-  const graduateNote = config.giveGradeRole
-    ? `Everyone in \`${config.gradeRolePrefix} ${MAX_GRADE}\` becomes \`${config.graduatedRoleName}\` on 1 September`
-    : null;
-
   return new EmbedBuilder()
     .setColor('#eee657')
     .setTitle('Student verification')
     .setDescription(truncate(config.instructions || DEFAULT_INSTRUCTIONS, 2000))
     .addFields(
-      {
-        name: 'What you will be asked for',
-        value: 'Your name, student number, team letter (optional, a-z or SWARM) and grade (optional, 8-12).',
-        inline: false,
-      },
-      {
-        name: 'What you get',
-        value: [
-          `The \`${config.verifiedRoleName}\` role`,
-          gradeNote,
-          config.giveTeamRole ? `A \`${config.teamRolePrefix} <letter>\` role` : null,
-          graduateNote,
-          config.setNickname ? 'Your nickname set to your name' : null,
-        ]
-          .filter(Boolean)
-          .join('\n'),
-        inline: false,
-      }
-    )
-    .setFooter({ text: 'One submission per person.' })
-    .setTimestamp();
+      { name: 'Name', value: 'Your full name', inline: false },
+      { name: 'Student number', value: 'Your student number', inline: false },
+      { name: 'Team letter', value: 'Optional — one letter (a-z) or SWARM', inline: false },
+      { name: 'Grade', value: 'Optional — 8 to 12', inline: false }
+    );
 }
 
 module.exports = {
